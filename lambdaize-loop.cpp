@@ -102,7 +102,7 @@ namespace {
         }
 
     public:
-        // NOTE: REQUIRES LOOP SIMPLIFIED AND INSTRUCTIONS NAMED
+        // NOTE: REQUIRES LOOPS SIMPLIFIED AND INSTRUCTIONS NAMED
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
             extractLoopIntoFunction(Loop);
