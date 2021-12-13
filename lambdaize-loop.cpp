@@ -1,17 +1,6 @@
 namespace {
     class LambdaizeLoop : public llvm::PassInfoMixin<LambdaizeLoop> {
     private:
-        template <class PassClass>
-        void preprocessFunctions(llvm::Module &Module, llvm::ModuleAnalysisManager &MAM)
-        {
-            auto Pass = PassClass();
-            auto &FAM = MAM.getResult<llvm::FunctionAnalysisManagerModuleProxy>(Module).getManager();
-            for (auto &&Function : Module) {
-                if (!Function.isDeclaration()) {
-                    Pass.run(Function, FAM);
-                }
-            }
-        }
         llvm::FunctionCallee getLooperFC(llvm::Module &Module)
         {
             const std::string Name = "looper";
@@ -105,14 +94,9 @@ namespace {
         }
 
     public:
-        llvm::PreservedAnalyses run(llvm::Module &Module, llvm::ModuleAnalysisManager &MAM)
-        {
-            preprocessFunctions<llvm::InstructionNamerPass>(Module, MAM);
-            preprocessFunctions<llvm::LoopSimplifyPass>(Module, MAM);
-            return llvm::PreservedAnalyses::none();
-        }
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
+            // TODO: research return value
             // TODO: handle nested loop
             if (!Loop.isInnermost()) {
                 return llvm::PreservedAnalyses::all();
@@ -139,13 +123,11 @@ extern "C" LLVM_ATTRIBUTE_WEAK llvm::PassPluginLibraryInfo llvmGetPassPluginInfo
         LLVM_VERSION_STRING,
         [](llvm::PassBuilder &PB) {
             PB.registerPipelineParsingCallback(
-                [](llvm::StringRef Name, llvm::ModulePassManager &MPM, llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
+                [](llvm::StringRef Name, llvm::FunctionPassManager &FPM, llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
                     if (Name == "lambdaize-loop") {
-                        MPM.addPass(LambdaizeLoop());
-                        MPM.addPass(
-                            llvm::createModuleToFunctionPassAdaptor(
-                                llvm::createFunctionToLoopPassAdaptor(
-                                    LambdaizeLoop())));
+                        FPM.addPass(llvm::LoopSimplifyPass());
+                        FPM.addPass(llvm::InstructionNamerPass());
+                        FPM.addPass(llvm::createFunctionToLoopPassAdaptor(LambdaizeLoop()));
                         return true;
                     }
                     return false;
