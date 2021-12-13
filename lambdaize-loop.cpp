@@ -62,6 +62,14 @@ namespace {
         }
         llvm::Function *extractLoopIntoFunction(llvm::Loop &Loop, std::string BaseName = "extracted" /*, std::string EntryLabel = "entry"*/)
         {
+            // TODO: handle nested loop
+            if (!Loop.isInnermost()) {
+                return nullptr;
+            }
+            // TODO: handle loop with multiple exit and exiting
+            if (!Loop.getExitingBlock() || !Loop.getExitBlock()) {
+                return nullptr;
+            }
             static int Count = 0;
             auto *Module = Loop.getHeader()->getParent()->getParent();
             auto &Context = Module->getContext();
@@ -94,22 +102,11 @@ namespace {
         }
 
     public:
+        // NOTE: REQUIRES LOOP SIMPLIFIED AND INSTRUCTIONS NAMED
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
-            // TODO: research return value
-            // TODO: handle nested loop
-            if (!Loop.isInnermost()) {
-                return llvm::PreservedAnalyses::all();
-            }
-            // NOTE: simplified loop has a preheader and exactry one latch.
-            if (!Loop.getLoopPreheader() || !Loop.getLoopLatch()) {
-                return llvm::PreservedAnalyses::all();
-            }
-            // TODO: handle loop with multiple exit and exiting
-            if (!Loop.getExitingBlock() || !Loop.getExitBlock()) {
-                return llvm::PreservedAnalyses::all();
-            }
             extractLoopIntoFunction(Loop);
+            // TODO: research return value
             return llvm::PreservedAnalyses::none();
         }
     };
