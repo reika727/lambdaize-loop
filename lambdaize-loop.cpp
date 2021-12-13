@@ -1,13 +1,15 @@
 namespace {
     class LambdaizeLoop : public llvm::PassInfoMixin<LambdaizeLoop> {
     private:
-        llvm::FunctionCallee getLooperFC(llvm::Module &Module)
+        llvm::StructType *getVaListType(llvm::LLVMContext &Context)
         {
-            const std::string Name = "looper";
-            auto *Type = llvm::FunctionType::get(
-                llvm::Type::getVoidTy(Module.getContext()),
-                true);
-            return Module.getOrInsertFunction(Name, Type);
+            const std::string Name = "struct.__va_list_tag";
+            if (auto *Type = llvm::StructType::getTypeByName(Context, Name)) {
+                return Type;
+            }
+            auto *i32 = llvm::IntegerType::getInt32Ty(Context);
+            auto *i8p = llvm::IntegerType::getInt8PtrTy(Context);
+            return llvm::StructType::create(Name, i32, i32, i8p, i8p);
         }
         llvm::FunctionCallee getVaArgPtrFC(llvm::Module &Module)
         {
@@ -19,15 +21,13 @@ namespace {
                 false);
             return Module.getOrInsertFunction(Name, Type);
         }
-        llvm::StructType *getVaListType(llvm::LLVMContext &Context)
+        llvm::FunctionCallee getLooperFC(llvm::Module &Module)
         {
-            const std::string Name = "struct.__va_list_tag";
-            if (auto *Type = llvm::StructType::getTypeByName(Context, Name)) {
-                return Type;
-            }
-            auto *i32 = llvm::IntegerType::getInt32Ty(Context);
-            auto *i8p = llvm::IntegerType::getInt8PtrTy(Context);
-            return llvm::StructType::create(Name, i32, i32, i8p, i8p);
+            const std::string Name = "looper";
+            auto *Type = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(Module.getContext()),
+                true);
+            return Module.getOrInsertFunction(Name, Type);
         }
         std::vector<llvm::Value *> getUnreferencedVariables(llvm::Loop &Loop)
         {
