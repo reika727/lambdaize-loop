@@ -29,7 +29,8 @@ namespace {
                 true);
             return Module.getOrInsertFunction(Name, Type);
         }
-        std::vector<llvm::Value *> getUnreferencedVariables(llvm::Loop &Loop)
+        template <class OutputIterator>
+        OutputIterator setUnreferencedVariables(llvm::Loop &Loop, OutputIterator result)
         {
             std::vector<llvm::Value *> Declared, Arguments;
             for (auto *Block : Loop.blocks()) {
@@ -48,17 +49,14 @@ namespace {
                 return V1->getName().compare(V2->getName()) < 0;
             };
             std::sort(Declared.begin(), Declared.end(), compValueByName);
+            Declared.erase(std::unique(Declared.begin(), Declared.end()), Declared.end());
             std::sort(Arguments.begin(), Arguments.end(), compValueByName);
-            std::vector<llvm::Value *> Unreferenced;
-            std::set_difference(
+            Arguments.erase(std::unique(Arguments.begin(), Arguments.end()), Arguments.end());
+            return std::set_difference(
                 Arguments.begin(), Arguments.end(),
                 Declared.begin(), Declared.end(),
-                std::inserter(Unreferenced, Unreferenced.begin()),
+                result,
                 compValueByName);
-            Unreferenced.erase(
-                std::unique(Unreferenced.begin(), Unreferenced.end()),
-                Unreferenced.end());
-            return Unreferenced;
         }
         llvm::Function *extractLoopIntoFunction(llvm::Loop &Loop, std::string BaseName = "extracted" /*, std::string EntryLabel = "entry"*/)
         {
@@ -83,8 +81,8 @@ namespace {
                 BaseName + std::to_string(++Count),
                 /*nullptr*/ *Module);
             // call looper insteed of process loop
-            auto Args = getUnreferencedVariables(Loop);
-            Args.insert(Args.begin(), Extracted);
+            std::vector<llvm::Value *> Args{Extracted};
+            setUnreferencedVariables(Loop, std::back_inserter(Args));
             auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
             Term->setSuccessor(0, Loop.getExitBlock());
             auto Builder = llvm::IRBuilder(Context);
