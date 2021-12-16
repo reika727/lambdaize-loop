@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/sh -e
 SCRIPTDIR=$(dirname $(readlink -f $0))
 LL=${1%.*}.ll
 OBFUSCATED=${1%.*}.obfuscated.ll
