@@ -58,45 +58,131 @@ namespace {
                 result,
                 compValueByName);
         }
-        llvm::Function *extractLoopIntoFunction(llvm::Loop &Loop, std::string BaseName = "extracted" /*, std::string EntryLabel = "entry"*/)
+        void extractLoopIntoFunction(llvm::Loop &Loop, std::string BaseName = "extracted")
         {
+            static auto Count = 0;
             // TODO: handle nested loop
             if (!Loop.isInnermost()) {
-                return nullptr;
+                return;
             }
             // TODO: handle loop with multiple exit and exiting
             if (!Loop.getExitingBlock() || !Loop.getExitBlock()) {
-                return nullptr;
+                return;
             }
-            static int Count = 0;
+            // TODO: handle latch block with conditional branch
+            if (!llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopLatch()->getTerminator())->isUnconditional()) {
+                return;
+            }
+            // TODO: handle exiting block with unconditional branch
+            auto *CondBr = llvm::dyn_cast<llvm::BranchInst>(Loop.getExitingBlock()->getTerminator());
+            if (!CondBr->isConditional()) {
+                return;
+            }
+            auto *IfTrue = CondBr->getSuccessor(0);
+            auto *IfFalse = CondBr->getSuccessor(1);
+            bool IsContinueCondition;
+            if (Loop.contains(IfTrue) && !Loop.contains(IfFalse)) {
+                IsContinueCondition = true;
+            } else if (!Loop.contains(IfTrue) && Loop.contains(IfFalse)) {
+                IsContinueCondition = false;
+            } else /* !Loop.contains(IfTrue) && !Loop.contains(IfFalse) */ {
+                return;
+            }
+            // detour loop
+            auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
+            Term->setSuccessor(0, Loop.getExitBlock());
+            // make "extracted"
             auto *Module = Loop.getHeader()->getParent()->getParent();
             auto &Context = Module->getContext();
-            // make "extracted"
+            std::vector<llvm::Value *> Args;
+            setUnreferencedVariables(Loop, std::back_inserter(Args));
+            std::vector<llvm::Type *> Types;
+            std::transform(
+                Args.begin(), Args.end(),
+                std::back_inserter(Types),
+                [](const llvm::Value *V) {
+                    return V->getType();
+                });
             auto *Extracted = llvm::Function::Create(
+                llvm::FunctionType::get(
+                    llvm::Type::getInt1Ty(Context),
+                    llvm::ArrayRef(Types),
+                    false),
+                llvm::GlobalValue::LinkageTypes::InternalLinkage,
+                BaseName + std::to_string(++Count),
+                *Module);
+            // create function body
+            for (auto *Block : Loop.getBlocks()) {
+                Block->removeFromParent();
+                Block->insertInto(Extracted);
+            }
+            auto Builder = llvm::IRBuilder(
+                llvm::BasicBlock::Create(
+                    Context,
+                    IsContinueCondition ? IfFalse->getName() : IfTrue->getName(),
+                    Extracted));
+            Builder.CreateRet(
+                IsContinueCondition
+                    ? CondBr->getCondition()
+                    : llvm::BinaryOperator::CreateNot(CondBr->getCondition()));
+            // redirect latch block to end block
+            for (auto &&Block : *Extracted) {
+                if (auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block.getTerminator())) {
+                    for (size_t i = 0; i < BrInst->getNumSuccessors(); ++i) {
+                        if (BrInst->getSuccessor(i)->isEntryBlock()) {
+                            BrInst->setSuccessor(i, &Extracted->back());
+                        }
+                    }
+                }
+            }
+            // reset values
+            std::map<llvm::StringRef, llvm::Value *> VMap;
+            for (size_t i = 0; i < Extracted->arg_size(); ++i) {
+                auto *A = Extracted->getArg(i);
+                A->setName(Args[i]->getName());
+                VMap[A->getName()] = A;
+            }
+            for (auto &&Block : *Extracted) {
+                VMap[Block.getName()] = &Block;
+                for (auto &&Inst : Block) {
+                    if (!Inst.getName().empty()) {
+                        VMap[Inst.getName()] = &Inst;
+                    }
+                }
+            }
+            for (auto &&Block : *Extracted) {
+                for (auto &&Inst : Block) {
+                    for (auto &&Op : Inst.operands()) {
+                        if (VMap.count(Op->getName())) {
+                            Op = VMap[Op->getName()];
+                        }
+                    }
+                }
+            }
+            // make "pass_to_extracted"
+            auto *PassToExtracted = llvm::Function::Create(
                 llvm::FunctionType::get(
                     llvm::Type::getInt1Ty(Context),
                     llvm::ArrayRef<llvm::Type *>{getVaListType(Context)->getPointerTo()},
                     false),
-                /*llvm::GlobalValue::LinkageTypes::InternalLinkage*/ llvm::GlobalValue::LinkageTypes::ExternalLinkage,
-                BaseName + std::to_string(++Count),
-                /*nullptr*/ *Module);
-            // call looper insteed of process loop
-            std::vector<llvm::Value *> Args{Extracted};
-            setUnreferencedVariables(Loop, std::back_inserter(Args));
-            auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
-            Term->setSuccessor(0, Loop.getExitBlock());
-            auto Builder = llvm::IRBuilder(Context);
-            Builder.SetInsertPoint(Term);
-            Builder.CreateCall(
-                getLooperFC(*Module),
-                llvm::ArrayRef<llvm::Value *>(Args));
-            // move loop-blocks to "extracted"
-            for (auto *Block : Loop.getBlocks()) {
-                Block->eraseFromParent();
-                // Block->removeFromParent();
-                // Block->insertInto(Extracted);
+                llvm::GlobalValue::LinkageTypes::InternalLinkage,
+                "pass_to_" + BaseName + std::to_string(Count),
+                *Module);
+            Builder.SetInsertPoint(llvm::BasicBlock::Create(Context, "entry", PassToExtracted));
+            std::vector<llvm::Value *> Casted;
+            for (auto *T : Types) {
+                Casted.push_back(
+                    Builder.CreateBitCast(
+                        Builder.CreateCall(
+                            getVaArgPtrFC(*Module),
+                            llvm::ArrayRef<llvm::Value *>(PassToExtracted->getArg(0))),
+                        T));
             }
-            return Extracted;
+            Builder.CreateRet(Builder.CreateCall(Extracted, llvm::ArrayRef(Casted)));
+            // call looper
+            Args.insert(Args.begin(), PassToExtracted);
+            Builder.SetInsertPoint(Term);
+            Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(Args));
         }
 
     public:
