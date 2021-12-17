@@ -1,33 +1,95 @@
 namespace {
     class LambdaizeLoop : public llvm::PassInfoMixin<LambdaizeLoop> {
+    public:
+        // NOTE: REQUIRES LOOPS SIMPLIFIED AND INSTRUCTIONS NAMED
+        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
+        {
+            return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
+        }
+
     private:
-        llvm::StructType *getVaListType(llvm::LLVMContext &Context)
+        bool extractLoopIntoFunction(llvm::Loop &Loop)
         {
-            const std::string Name = "struct.__va_list_tag";
-            if (auto *Type = llvm::StructType::getTypeByName(Context, Name)) {
-                return Type;
+            // TODO: handle nested loop
+            if (!Loop.isInnermost()) {
+                return false;
             }
-            auto *i32 = llvm::IntegerType::getInt32Ty(Context);
-            auto *i8p = llvm::IntegerType::getInt8PtrTy(Context);
-            return llvm::StructType::create(Name, i32, i32, i8p, i8p);
+            // TODO: handle loop with multiple exit and exiting
+            if (!Loop.getExitingBlock() || !Loop.getExitBlock()) {
+                return false;
+            }
+            // TODO: handle latch block with conditional branch
+            if (!llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopLatch()->getTerminator())->isUnconditional()) {
+                return false;
+            }
+            auto *Module = Loop.getHeader()->getParent()->getParent();
+            auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
+            auto *Exit = Loop.getExitBlock();
+            std::vector<llvm::Value *> Needed;
+            if (auto *Extracted = createExtracted(Loop, std::back_inserter(Needed))) {
+                Term->setSuccessor(0, Exit);
+                llvm::IRBuilder Builder(Term);
+                Needed.insert(Needed.begin(), createPassToExtracted(*Module, Extracted));
+                Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(Needed));
+                return true;
+            }
+            return false;
         }
-        llvm::FunctionCallee getVaArgPtrFC(llvm::Module &Module)
+        template <class OutputIterator>
+        llvm::Function *createExtracted(llvm::Loop &Loop, OutputIterator NeededArguments)
         {
-            const std::string Name = "va_arg_ptr";
-            auto *Type = llvm::FunctionType::get(
-                llvm::IntegerType::getInt8PtrTy(Module.getContext()),
-                llvm::ArrayRef<llvm::Type *>{
-                    getVaListType(Module.getContext())->getPointerTo()},
-                false);
-            return Module.getOrInsertFunction(Name, Type);
+            auto *Module = Loop.getHeader()->getParent()->getParent();
+            auto &Context = Module->getContext();
+            std::vector<llvm::Value *> Unreferenced;
+            setUnreferencedVariables(Loop, std::back_inserter(Unreferenced));
+            std::copy(Unreferenced.begin(), Unreferenced.end(), NeededArguments);
+            std::vector<llvm::Type *> Types;
+            std::transform(
+                Unreferenced.begin(), Unreferenced.end(),
+                std::back_inserter(Types),
+                [](const llvm::Value *V) { return V->getType(); });
+            auto *Extracted = llvm::Function::Create(
+                llvm::FunctionType::get(llvm::Type::getInt1Ty(Context), llvm::ArrayRef(Types), false),
+                llvm::GlobalValue::LinkageTypes::InternalLinkage,
+                "extracted",
+                *Module);
+            for (size_t i = 0; i < Extracted->arg_size(); ++i) {
+                auto *A = Extracted->getArg(i);
+                A->setName(Unreferenced[i]->getName());
+            }
+            std::vector<llvm::BasicBlock *> BlocksFromLoop;
+            if (!RemoveLoop(Loop, std::back_inserter(BlocksFromLoop))) {
+                return nullptr;
+            }
+            for (auto *Block : BlocksFromLoop) {
+                Block->insertInto(Extracted);
+            }
+            JustifyFunction(Extracted);
+            return Extracted;
         }
-        llvm::FunctionCallee getLooperFC(llvm::Module &Module)
+        llvm::Function *createPassToExtracted(llvm::Module &Module, llvm::Function *Extracted)
         {
-            const std::string Name = "looper";
-            auto *Type = llvm::FunctionType::get(
-                llvm::Type::getVoidTy(Module.getContext()),
-                true);
-            return Module.getOrInsertFunction(Name, Type);
+            auto &Context = Module.getContext();
+            auto *PassToExtracted = llvm::Function::Create(
+                llvm::FunctionType::get(
+                    llvm::Type::getInt1Ty(Context),
+                    llvm::ArrayRef<llvm::Type *>{getVaListType(Context)->getPointerTo()},
+                    false),
+                llvm::GlobalValue::LinkageTypes::InternalLinkage,
+                "pass_to_" + Extracted->getName(),
+                Module);
+            llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", PassToExtracted));
+            std::vector<llvm::Value *> Casted;
+            for (auto &&A : Extracted->args()) {
+                Casted.push_back(
+                    Builder.CreateBitCast(
+                        Builder.CreateCall(
+                            getVaArgPtrFC(Module),
+                            llvm::ArrayRef<llvm::Value *>(PassToExtracted->getArg(0))),
+                        A.getType()));
+            }
+            Builder.CreateRet(Builder.CreateCall(Extracted, llvm::ArrayRef(Casted)));
+            return PassToExtracted;
         }
         template <class OutputIterator>
         OutputIterator setUnreferencedVariables(llvm::Loop &Loop, OutputIterator result)
@@ -58,91 +120,51 @@ namespace {
                 result,
                 compValueByName);
         }
-        void extractLoopIntoFunction(llvm::Loop &Loop, std::string BaseName = "extracted")
+        template <class OutputIterator>
+        bool RemoveLoop(llvm::Loop &Loop, OutputIterator Dest)
         {
-            static auto Count = 0;
-            // TODO: handle nested loop
-            if (!Loop.isInnermost()) {
-                return;
-            }
-            // TODO: handle loop with multiple exit and exiting
-            if (!Loop.getExitingBlock() || !Loop.getExitBlock()) {
-                return;
-            }
-            // TODO: handle latch block with conditional branch
-            if (!llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopLatch()->getTerminator())->isUnconditional()) {
-                return;
-            }
-            // TODO: handle exiting block with unconditional branch
+            auto &Context = Loop.getHeader()->getParent()->getParent()->getContext();
             auto *CondBr = llvm::dyn_cast<llvm::BranchInst>(Loop.getExitingBlock()->getTerminator());
+            // TODO: handle exiting block with unconditional branch
             if (!CondBr->isConditional()) {
-                return;
+                return false;
             }
-            auto *IfTrue = CondBr->getSuccessor(0);
-            auto *IfFalse = CondBr->getSuccessor(1);
-            bool IsContinueCondition;
-            if (Loop.contains(IfTrue) && !Loop.contains(IfFalse)) {
-                IsContinueCondition = true;
+            llvm::BasicBlock *EndBlock;
+            if (auto *IfTrue = CondBr->getSuccessor(0), *IfFalse = CondBr->getSuccessor(1);
+                Loop.contains(IfTrue) && !Loop.contains(IfFalse)) {
+                EndBlock = llvm::BasicBlock::Create(Context, IfFalse->getName());
+                auto *Cond = CondBr->getCondition();
+                EndBlock->getInstList().push_back(llvm::ReturnInst::Create(Context, Cond));
             } else if (!Loop.contains(IfTrue) && Loop.contains(IfFalse)) {
-                IsContinueCondition = false;
-            } else /* !Loop.contains(IfTrue) && !Loop.contains(IfFalse) */ {
-                return;
+                EndBlock = llvm::BasicBlock::Create(Context, IfTrue->getName());
+                auto *Cond = llvm::BinaryOperator::CreateNot(CondBr->getCondition());
+                EndBlock->getInstList().push_back(llvm::ReturnInst::Create(Context, Cond));
+            } else /* TODO: handle !Loop.contains(IfTrue) && !Loop.contains(IfFalse) */ {
+                return false;
             }
-            // detour loop
-            auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
-            Term->setSuccessor(0, Loop.getExitBlock());
-            // make "extracted"
-            auto *Module = Loop.getHeader()->getParent()->getParent();
-            auto &Context = Module->getContext();
-            std::vector<llvm::Value *> Args;
-            setUnreferencedVariables(Loop, std::back_inserter(Args));
-            std::vector<llvm::Type *> Types;
-            std::transform(
-                Args.begin(), Args.end(),
-                std::back_inserter(Types),
-                [](const llvm::Value *V) {
-                    return V->getType();
-                });
-            auto *Extracted = llvm::Function::Create(
-                llvm::FunctionType::get(
-                    llvm::Type::getInt1Ty(Context),
-                    llvm::ArrayRef(Types),
-                    false),
-                llvm::GlobalValue::LinkageTypes::InternalLinkage,
-                BaseName + std::to_string(++Count),
-                *Module);
-            // create function body
             for (auto *Block : Loop.getBlocks()) {
                 Block->removeFromParent();
-                Block->insertInto(Extracted);
-            }
-            auto Builder = llvm::IRBuilder(
-                llvm::BasicBlock::Create(
-                    Context,
-                    IsContinueCondition ? IfFalse->getName() : IfTrue->getName(),
-                    Extracted));
-            Builder.CreateRet(
-                IsContinueCondition
-                    ? CondBr->getCondition()
-                    : llvm::BinaryOperator::CreateNot(CondBr->getCondition()));
-            // redirect latch block to end block
-            for (auto &&Block : *Extracted) {
-                if (auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block.getTerminator())) {
+                if (Loop.isLoopLatch(Block)) {
+                    auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block->getTerminator());
                     for (size_t i = 0; i < BrInst->getNumSuccessors(); ++i) {
-                        if (BrInst->getSuccessor(i)->isEntryBlock()) {
-                            BrInst->setSuccessor(i, &Extracted->back());
+                        if (BrInst->getSuccessor(i) == Loop.getHeader()) {
+                            BrInst->setSuccessor(i, EndBlock);
                         }
                     }
                 }
+                *Dest = Block;
             }
-            // reset values
+            *Dest = EndBlock;
+            return true;
+        }
+        void JustifyFunction(llvm::Function *Function)
+        {
             std::map<llvm::StringRef, llvm::Value *> VMap;
-            for (size_t i = 0; i < Extracted->arg_size(); ++i) {
-                auto *A = Extracted->getArg(i);
-                A->setName(Args[i]->getName());
+            for (size_t i = 0; i < Function->arg_size(); ++i) {
+                auto *A = Function->getArg(i);
                 VMap[A->getName()] = A;
             }
-            for (auto &&Block : *Extracted) {
+            for (auto &&Block : *Function) {
                 VMap[Block.getName()] = &Block;
                 for (auto &&Inst : Block) {
                     if (!Inst.getName().empty()) {
@@ -150,7 +172,7 @@ namespace {
                     }
                 }
             }
-            for (auto &&Block : *Extracted) {
+            for (auto &&Block : *Function) {
                 for (auto &&Inst : Block) {
                     for (auto &&Op : Inst.operands()) {
                         if (VMap.count(Op->getName())) {
@@ -159,39 +181,34 @@ namespace {
                     }
                 }
             }
-            // make "pass_to_extracted"
-            auto *PassToExtracted = llvm::Function::Create(
-                llvm::FunctionType::get(
-                    llvm::Type::getInt1Ty(Context),
-                    llvm::ArrayRef<llvm::Type *>{getVaListType(Context)->getPointerTo()},
-                    false),
-                llvm::GlobalValue::LinkageTypes::InternalLinkage,
-                "pass_to_" + BaseName + std::to_string(Count),
-                *Module);
-            Builder.SetInsertPoint(llvm::BasicBlock::Create(Context, "entry", PassToExtracted));
-            std::vector<llvm::Value *> Casted;
-            for (auto *T : Types) {
-                Casted.push_back(
-                    Builder.CreateBitCast(
-                        Builder.CreateCall(
-                            getVaArgPtrFC(*Module),
-                            llvm::ArrayRef<llvm::Value *>(PassToExtracted->getArg(0))),
-                        T));
-            }
-            Builder.CreateRet(Builder.CreateCall(Extracted, llvm::ArrayRef(Casted)));
-            // call looper
-            Args.insert(Args.begin(), PassToExtracted);
-            Builder.SetInsertPoint(Term);
-            Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(Args));
         }
-
-    public:
-        // NOTE: REQUIRES LOOPS SIMPLIFIED AND INSTRUCTIONS NAMED
-        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
+        llvm::FunctionCallee getLooperFC(llvm::Module &Module)
         {
-            extractLoopIntoFunction(Loop);
-            // TODO: research return value
-            return llvm::PreservedAnalyses::none();
+            const std::string Name = "looper";
+            auto *Type = llvm::FunctionType::get(
+                llvm::Type::getVoidTy(Module.getContext()),
+                true);
+            return Module.getOrInsertFunction(Name, Type);
+        }
+        llvm::FunctionCallee getVaArgPtrFC(llvm::Module &Module)
+        {
+            const std::string Name = "va_arg_ptr";
+            auto *Type = llvm::FunctionType::get(
+                llvm::IntegerType::getInt8PtrTy(Module.getContext()),
+                llvm::ArrayRef<llvm::Type *>{
+                    getVaListType(Module.getContext())->getPointerTo()},
+                false);
+            return Module.getOrInsertFunction(Name, Type);
+        }
+        llvm::StructType *getVaListType(llvm::LLVMContext &Context)
+        {
+            const std::string Name = "struct.__va_list_tag";
+            if (auto *Type = llvm::StructType::getTypeByName(Context, Name)) {
+                return Type;
+            }
+            auto *i32 = llvm::IntegerType::getInt32Ty(Context);
+            auto *i8p = llvm::IntegerType::getInt8PtrTy(Context);
+            return llvm::StructType::create(Name, i32, i32, i8p, i8p);
         }
     };
 }
