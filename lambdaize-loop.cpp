@@ -25,12 +25,13 @@ namespace {
             auto *Module = Loop.getHeader()->getParent()->getParent();
             auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
             auto *Exit = Loop.getExitBlock();
-            std::vector<llvm::Value *> Needed;
-            if (auto *Extracted = createExtracted(Loop, std::back_inserter(Needed))) {
+            // HACK: ArgsToLooper[0] should contain pointer to PassToExtracted, so reserve place
+            std::vector<llvm::Value *> ArgsToLooper{nullptr};
+            if (auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper))) {
                 Term->setSuccessor(0, Exit);
                 llvm::IRBuilder Builder(Term);
-                Needed.insert(Needed.begin(), createPassToExtracted(*Module, Extracted));
-                Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(Needed));
+                ArgsToLooper[0] = createPassToExtracted(*Module, Extracted);
+                Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(ArgsToLooper));
                 return true;
             }
             return false;
