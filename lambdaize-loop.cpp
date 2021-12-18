@@ -18,10 +18,6 @@ namespace {
             if (!Loop.getExitingBlock() || !Loop.getExitBlock()) {
                 return false;
             }
-            // TODO: handle latch block with conditional branch
-            if (!llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopLatch()->getTerminator())->isUnconditional()) {
-                return false;
-            }
             auto *Module = Loop.getHeader()->getParent()->getParent();
             auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
             auto *Exit = Loop.getExitBlock();
