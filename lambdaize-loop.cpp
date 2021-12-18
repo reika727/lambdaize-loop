@@ -140,12 +140,11 @@ namespace {
             }
             for (auto *Block : Loop.getBlocks()) {
                 Block->removeFromParent();
-                if (Loop.isLoopLatch(Block)) {
-                    auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block->getTerminator());
-                    for (size_t i = 0; i < BrInst->getNumSuccessors(); ++i) {
-                        if (BrInst->getSuccessor(i) == Loop.getHeader()) {
-                            BrInst->setSuccessor(i, EndBlock);
-                        }
+                auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block->getTerminator());
+                for (size_t i = 0; i < BrInst->getNumSuccessors(); ++i) {
+                    if (auto *Successor = BrInst->getSuccessor(i);
+                        Successor == Loop.getHeader() || Successor->getName() == EndBlock->getName()) {
+                        BrInst->setSuccessor(i, EndBlock);
                     }
                 }
                 *Dest = Block;
@@ -155,24 +154,15 @@ namespace {
         }
         void JustifyFunction(llvm::Function *Function)
         {
-            std::map<llvm::StringRef, llvm::Value *> VMap;
-            for (size_t i = 0; i < Function->arg_size(); ++i) {
-                auto *Arg = Function->getArg(i);
-                VMap[Arg->getName()] = Arg;
-            }
-            for (auto &&Block : *Function) {
-                VMap[Block.getName()] = &Block;
-                for (auto &&Inst : Block) {
-                    if (!Inst.getName().empty()) {
-                        VMap[Inst.getName()] = &Inst;
-                    }
-                }
+            std::map<llvm::StringRef, llvm::Value *> ArgMap;
+            for (auto &&Arg : Function->args()) {
+                ArgMap[Arg.getName()] = &Arg;
             }
             for (auto &&Block : *Function) {
                 for (auto &&Inst : Block) {
                     for (auto &&Op : Inst.operands()) {
-                        if (VMap.count(Op->getName())) {
-                            Op = VMap[Op->getName()];
+                        if (ArgMap.count(Op->getName())) {
+                            Op = ArgMap[Op->getName()];
                         }
                     }
                 }
