@@ -51,7 +51,7 @@ namespace {
                 [](const llvm::Value *V) { return V->getType(); });
             auto *Extracted = llvm::Function::Create(
                 llvm::FunctionType::get(llvm::Type::getInt1Ty(Context), llvm::ArrayRef(Types), false),
-                llvm::GlobalValue::LinkageTypes::InternalLinkage,
+                llvm::GlobalValue::LinkageTypes::PrivateLinkage,
                 "extracted",
                 *Module);
             for (size_t i = 0; i < Extracted->arg_size(); ++i) {
@@ -75,7 +75,7 @@ namespace {
                     llvm::Type::getInt1Ty(Context),
                     llvm::ArrayRef<llvm::Type *>{getVaListType(Context)->getPointerTo()},
                     false),
-                llvm::GlobalValue::LinkageTypes::InternalLinkage,
+                llvm::GlobalValue::LinkageTypes::PrivateLinkage,
                 "pass_to_" + Extracted->getName(),
                 Module);
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", PassToExtracted));
