@@ -41,7 +41,7 @@ namespace {
             auto *Module = Loop.getHeader()->getParent()->getParent();
             auto &Context = Module->getContext();
             std::vector<llvm::Value *> Unreferenced;
-            setUnreferencedVariables(Loop, std::back_inserter(Unreferenced));
+            setOutsideDefinedVariables(Loop, std::back_inserter(Unreferenced));
             std::copy(Unreferenced.begin(), Unreferenced.end(), NeededArguments);
             std::vector<llvm::Type *> Types;
             std::transform(
@@ -92,7 +92,7 @@ namespace {
             return PassToExtracted;
         }
         template <class OutputIterator>
-        OutputIterator setUnreferencedVariables(llvm::Loop &Loop, OutputIterator result)
+        OutputIterator setOutsideDefinedVariables(llvm::Loop &Loop, OutputIterator result)
         {
             std::vector<llvm::Value *> Declared, Arguments;
             for (auto *Block : Loop.blocks()) {
