@@ -107,18 +107,14 @@ namespace {
                     }
                 }
             }
-            auto compValueByName = [](llvm::Value *V1, llvm::Value *V2) {
-                return V1->getName().compare(V2->getName()) < 0;
-            };
-            std::sort(Declared.begin(), Declared.end(), compValueByName);
+            std::sort(Declared.begin(), Declared.end());
             Declared.erase(std::unique(Declared.begin(), Declared.end()), Declared.end());
-            std::sort(Arguments.begin(), Arguments.end(), compValueByName);
+            std::sort(Arguments.begin(), Arguments.end());
             Arguments.erase(std::unique(Arguments.begin(), Arguments.end()), Arguments.end());
             return std::set_difference(
                 Arguments.begin(), Arguments.end(),
                 Declared.begin(), Declared.end(),
-                result,
-                compValueByName);
+                result);
         }
         template <class OutputIterator>
         bool RemoveLoop(llvm::Loop &Loop, OutputIterator Dest)
