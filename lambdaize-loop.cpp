@@ -23,14 +23,12 @@ namespace {
             auto *Exit = Loop.getExitBlock();
             // HACK: ArgsToLooper[0] should contain pointer to PassToExtracted, so reserve place
             std::vector<llvm::Value *> ArgsToLooper{nullptr};
-            if (auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper))) {
-                Term->setSuccessor(0, Exit);
-                llvm::IRBuilder Builder(Term);
-                ArgsToLooper[0] = createPassToExtracted(*Module, Extracted);
-                Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(ArgsToLooper));
-                return true;
-            }
-            return false;
+            auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper));
+            Term->setSuccessor(0, Exit);
+            llvm::IRBuilder Builder(Term);
+            ArgsToLooper[0] = createPassToExtracted(*Module, Extracted);
+            Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(ArgsToLooper));
+            return true;
         }
         template <class OutputIterator>
         llvm::Function *createExtracted(llvm::Loop &Loop, OutputIterator NeededArguments)
@@ -54,9 +52,7 @@ namespace {
                 Extracted->getArg(i)->setName(OutsideDefined[i]->getName());
             }
             std::vector<llvm::BasicBlock *> BlocksFromLoop;
-            if (!RemoveLoop(Loop, std::back_inserter(BlocksFromLoop))) {
-                return nullptr;
-            }
+            RemoveLoop(Loop, std::back_inserter(BlocksFromLoop));
             for (auto *Block : BlocksFromLoop) {
                 Block->insertInto(Extracted);
             }
@@ -113,26 +109,19 @@ namespace {
                 result);
         }
         template <class OutputIterator>
-        bool RemoveLoop(llvm::Loop &Loop, OutputIterator Dest)
+        OutputIterator RemoveLoop(llvm::Loop &Loop, OutputIterator Dest)
         {
             auto &Context = Loop.getHeader()->getParent()->getParent()->getContext();
             auto *CondBr = llvm::dyn_cast<llvm::BranchInst>(Loop.getExitingBlock()->getTerminator());
-            // TODO: handle exiting block with unconditional branch
-            if (!CondBr->isConditional()) {
-                return false;
-            }
             llvm::BasicBlock *EndBlock;
-            if (auto *IfTrue = CondBr->getSuccessor(0), *IfFalse = CondBr->getSuccessor(1);
-                Loop.contains(IfTrue) && !Loop.contains(IfFalse)) {
+            if (auto *IfTrue = CondBr->getSuccessor(0), *IfFalse = CondBr->getSuccessor(1); Loop.contains(IfTrue)) {
                 EndBlock = llvm::BasicBlock::Create(Context, IfFalse->getName());
                 auto *Cond = CondBr->getCondition();
                 EndBlock->getInstList().push_back(llvm::ReturnInst::Create(Context, Cond));
-            } else if (!Loop.contains(IfTrue) && Loop.contains(IfFalse)) {
+            } else /* Loop.contains(IfFalse) */ {
                 EndBlock = llvm::BasicBlock::Create(Context, IfTrue->getName());
                 auto *Cond = llvm::BinaryOperator::CreateNot(CondBr->getCondition());
                 EndBlock->getInstList().push_back(llvm::ReturnInst::Create(Context, Cond));
-            } else /* TODO: handle !Loop.contains(IfTrue) && !Loop.contains(IfFalse) */ {
-                return false;
             }
             for (auto *Block : Loop.getBlocks()) {
                 Block->removeFromParent();
@@ -146,7 +135,7 @@ namespace {
                 *Dest = Block;
             }
             *Dest = EndBlock;
-            return true;
+            return Dest;
         }
         void JustifyFunction(llvm::Function *Function)
         {
