@@ -41,12 +41,12 @@ namespace {
         {
             auto *Module = Loop.getHeader()->getParent()->getParent();
             auto &Context = Module->getContext();
-            std::vector<llvm::Value *> Unreferenced;
-            setOutsideDefinedVariables(Loop, std::back_inserter(Unreferenced));
-            std::copy(Unreferenced.begin(), Unreferenced.end(), NeededArguments);
+            std::vector<llvm::Value *> OutsideDefined;
+            setOutsideDefinedVariables(Loop, std::back_inserter(OutsideDefined));
+            std::copy(OutsideDefined.begin(), OutsideDefined.end(), NeededArguments);
             std::vector<llvm::Type *> Types;
             std::transform(
-                Unreferenced.begin(), Unreferenced.end(),
+                OutsideDefined.begin(), OutsideDefined.end(),
                 std::back_inserter(Types),
                 [](const llvm::Value *V) { return V->getType(); });
             auto *Extracted = llvm::Function::Create(
@@ -55,8 +55,7 @@ namespace {
                 "extracted",
                 *Module);
             for (size_t i = 0; i < Extracted->arg_size(); ++i) {
-                auto *A = Extracted->getArg(i);
-                A->setName(Unreferenced[i]->getName());
+                Extracted->getArg(i)->setName(OutsideDefined[i]->getName());
             }
             std::vector<llvm::BasicBlock *> BlocksFromLoop;
             if (!RemoveLoop(Loop, std::back_inserter(BlocksFromLoop))) {
@@ -81,13 +80,13 @@ namespace {
                 Module);
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", PassToExtracted));
             std::vector<llvm::Value *> Casted;
-            for (auto &&A : Extracted->args()) {
+            for (auto &&Arg : Extracted->args()) {
                 Casted.push_back(
                     Builder.CreateBitCast(
                         Builder.CreateCall(
                             getVaArgPtrFC(Module),
                             llvm::ArrayRef<llvm::Value *>(PassToExtracted->getArg(0))),
-                        A.getType()));
+                        Arg.getType()));
             }
             Builder.CreateRet(Builder.CreateCall(Extracted, llvm::ArrayRef(Casted)));
             return PassToExtracted;
@@ -162,8 +161,8 @@ namespace {
         {
             std::map<llvm::StringRef, llvm::Value *> VMap;
             for (size_t i = 0; i < Function->arg_size(); ++i) {
-                auto *A = Function->getArg(i);
-                VMap[A->getName()] = A;
+                auto *Arg = Function->getArg(i);
+                VMap[Arg->getName()] = Arg;
             }
             for (auto &&Block : *Function) {
                 VMap[Block.getName()] = &Block;
