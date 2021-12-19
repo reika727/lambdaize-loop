@@ -60,23 +60,19 @@ namespace {
         template <class OutputIterator>
         OutputIterator setOutsideDefinedVariables(llvm::Loop &Loop, OutputIterator result)
         {
-            std::vector<llvm::Value *> Declared, Arguments;
+            std::set<llvm::Value *> Declared, Arguments;
             for (auto *Block : Loop.blocks()) {
                 for (auto &&Inst : *Block) {
                     if (!Inst.getName().empty()) {
-                        Declared.push_back(&Inst);
+                        Declared.insert(&Inst);
                     }
                     for (auto *Op : Inst.operand_values()) {
                         if (!Op->getType()->isLabelTy() && !Op->getName().empty()) {
-                            Arguments.push_back(Op);
+                            Arguments.insert(Op);
                         }
                     }
                 }
             }
-            std::sort(Declared.begin(), Declared.end());
-            Declared.erase(std::unique(Declared.begin(), Declared.end()), Declared.end());
-            std::sort(Arguments.begin(), Arguments.end());
-            Arguments.erase(std::unique(Arguments.begin(), Arguments.end()), Arguments.end());
             return std::set_difference(
                 Arguments.begin(), Arguments.end(),
                 Declared.begin(), Declared.end(),
