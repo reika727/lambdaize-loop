@@ -22,7 +22,7 @@ namespace {
             auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
             auto *Exit = Loop.getExitBlock();
             // HACK: ArgsToLooper[0] should contain pointer to Extracted, so reserve place
-            std::vector<llvm::Value *> ArgsToLooper{nullptr};
+            std::vector<llvm::Value *> ArgsToLooper(1);
             auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper));
             Term->setSuccessor(0, Exit);
             llvm::IRBuilder Builder(Term);
