@@ -44,17 +44,24 @@ namespace {
                 llvm::GlobalValue::LinkageTypes::PrivateLinkage,
                 "extracted",
                 *Loop.getHeader()->getModule());
+            std::map<llvm::StringRef, llvm::Value *> ArgAddrMap;
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", Extracted));
-            for (auto &&OD : OutsideDefined) {
-                Builder.CreateVAArg(Extracted->getArg(0), OD->getType(), OD->getName());
+            for (auto *OD : OutsideDefined) {
+                ArgAddrMap[OD->getName()] = Builder.CreateVAArg(Extracted->getArg(0), OD->getType());
             }
             std::vector<llvm::BasicBlock *> BlocksFromLoop;
             RemoveLoop(Loop, std::back_inserter(BlocksFromLoop));
             Builder.CreateBr(BlocksFromLoop.front());
             for (auto *Block : BlocksFromLoop) {
+                for (auto &&Inst : *Block) {
+                    for (auto &&Op : Inst.operands()) {
+                        if (ArgAddrMap.count(Op->getName())) {
+                            Op = ArgAddrMap[Op->getName()];
+                        }
+                    }
+                }
                 Block->insertInto(Extracted);
             }
-            JustifyFunction(Extracted);
             return Extracted;
         }
         template <class OutputIterator>
@@ -106,22 +113,6 @@ namespace {
             }
             *Dest = EndBlock;
             return Dest;
-        }
-        void JustifyFunction(llvm::Function *Function)
-        {
-            std::map<llvm::StringRef, llvm::Value *> VMap;
-            for (auto &&Block : *Function) {
-                for (auto &&Inst : Block) {
-                    if (auto IName = Inst.getName(); !IName.empty()) {
-                        VMap[IName] = &Inst;
-                    }
-                    for (auto &&Op : Inst.operands()) {
-                        if (VMap.count(Op->getName())) {
-                            Op = VMap[Op->getName()];
-                        }
-                    }
-                }
-            }
         }
         llvm::FunctionCallee getLooperFC(llvm::Module &Module)
         {
