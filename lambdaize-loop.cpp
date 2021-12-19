@@ -71,16 +71,11 @@ namespace {
                 "pass_to_" + Extracted->getName(),
                 Module);
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", PassToExtracted));
-            std::vector<llvm::Value *> Casted;
+            std::vector<llvm::Value *> Args;
             for (auto &&Arg : Extracted->args()) {
-                Casted.push_back(
-                    Builder.CreateBitCast(
-                        Builder.CreateCall(
-                            getVaArgPtrFC(Module),
-                            llvm::ArrayRef<llvm::Value *>(PassToExtracted->getArg(0))),
-                        Arg.getType()));
+                Args.push_back(Builder.CreateVAArg(PassToExtracted->getArg(0), Arg.getType()));
             }
-            Builder.CreateRet(Builder.CreateCall(Extracted, llvm::ArrayRef(Casted)));
+            Builder.CreateRet(Builder.CreateCall(Extracted, llvm::ArrayRef(Args)));
             return PassToExtracted;
         }
         template <class OutputIterator>
@@ -161,19 +156,9 @@ namespace {
                 true);
             return Module.getOrInsertFunction(Name, Type);
         }
-        llvm::FunctionCallee getVaArgPtrFC(llvm::Module &Module)
-        {
-            const std::string Name = "va_arg_ptr";
-            auto *Type = llvm::FunctionType::get(
-                llvm::IntegerType::getInt8PtrTy(Module.getContext()),
-                llvm::ArrayRef<llvm::Type *>{
-                    getVaListType(Module.getContext())->getPointerTo()},
-                false);
-            return Module.getOrInsertFunction(Name, Type);
-        }
         llvm::StructType *getVaListType(llvm::LLVMContext &Context)
         {
-            const std::string Name = "struct.__va_list_tag";
+            const std::string Name = "struct.va_list";
             if (auto *Type = llvm::StructType::getTypeByName(Context, Name)) {
                 return Type;
             }
