@@ -21,12 +21,12 @@ namespace {
             auto *Module = Loop.getHeader()->getParent()->getParent();
             auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
             auto *Exit = Loop.getExitBlock();
-            // HACK: ArgsToLooper[0] should contain pointer to PassToExtracted, so reserve place
+            // HACK: ArgsToLooper[0] should contain pointer to Extracted, so reserve place
             std::vector<llvm::Value *> ArgsToLooper{nullptr};
             auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper));
             Term->setSuccessor(0, Exit);
             llvm::IRBuilder Builder(Term);
-            ArgsToLooper[0] = createPassToExtracted(*Module, Extracted);
+            ArgsToLooper[0] = Extracted;
             Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(ArgsToLooper));
             return true;
         }
@@ -38,45 +38,26 @@ namespace {
             std::vector<llvm::Value *> OutsideDefined;
             setOutsideDefinedVariables(Loop, std::back_inserter(OutsideDefined));
             std::copy(OutsideDefined.begin(), OutsideDefined.end(), NeededArguments);
-            std::vector<llvm::Type *> Types;
-            std::transform(
-                OutsideDefined.begin(), OutsideDefined.end(),
-                std::back_inserter(Types),
-                [](const llvm::Value *V) { return V->getType(); });
             auto *Extracted = llvm::Function::Create(
-                llvm::FunctionType::get(llvm::Type::getInt1Ty(Context), llvm::ArrayRef(Types), false),
-                llvm::GlobalValue::LinkageTypes::PrivateLinkage,
-                "extracted",
-                *Module);
-            for (size_t i = 0; i < Extracted->arg_size(); ++i) {
-                Extracted->getArg(i)->setName(OutsideDefined[i]->getName());
-            }
-            std::vector<llvm::BasicBlock *> BlocksFromLoop;
-            RemoveLoop(Loop, std::back_inserter(BlocksFromLoop));
-            for (auto *Block : BlocksFromLoop) {
-                Block->insertInto(Extracted);
-            }
-            JustifyFunction(Extracted);
-            return Extracted;
-        }
-        llvm::Function *createPassToExtracted(llvm::Module &Module, llvm::Function *Extracted)
-        {
-            auto &Context = Module.getContext();
-            auto *PassToExtracted = llvm::Function::Create(
                 llvm::FunctionType::get(
                     llvm::Type::getInt1Ty(Context),
                     llvm::ArrayRef<llvm::Type *>{getVaListType(Context)->getPointerTo()},
                     false),
                 llvm::GlobalValue::LinkageTypes::PrivateLinkage,
-                "pass_to_" + Extracted->getName(),
-                Module);
-            llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", PassToExtracted));
-            std::vector<llvm::Value *> Args;
-            for (auto &&Arg : Extracted->args()) {
-                Args.push_back(Builder.CreateVAArg(PassToExtracted->getArg(0), Arg.getType()));
+                "extracted",
+                *Module);
+            llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", Extracted));
+            for (auto &&OD : OutsideDefined) {
+                Builder.CreateVAArg(Extracted->getArg(0), OD->getType(), OD->getName());
             }
-            Builder.CreateRet(Builder.CreateCall(Extracted, llvm::ArrayRef(Args)));
-            return PassToExtracted;
+            std::vector<llvm::BasicBlock *> BlocksFromLoop;
+            RemoveLoop(Loop, std::back_inserter(BlocksFromLoop));
+            Builder.CreateBr(BlocksFromLoop.front());
+            for (auto *Block : BlocksFromLoop) {
+                Block->insertInto(Extracted);
+            }
+            JustifyFunction(Extracted);
+            return Extracted;
         }
         template <class OutputIterator>
         OutputIterator setOutsideDefinedVariables(llvm::Loop &Loop, OutputIterator result)
@@ -134,15 +115,15 @@ namespace {
         }
         void JustifyFunction(llvm::Function *Function)
         {
-            std::map<llvm::StringRef, llvm::Value *> ArgMap;
-            for (auto &&Arg : Function->args()) {
-                ArgMap[Arg.getName()] = &Arg;
-            }
+            std::map<llvm::StringRef, llvm::Value *> VMap;
             for (auto &&Block : *Function) {
                 for (auto &&Inst : Block) {
+                    if (auto IName = Inst.getName(); !IName.empty()) {
+                        VMap[IName] = &Inst;
+                    }
                     for (auto &&Op : Inst.operands()) {
-                        if (ArgMap.count(Op->getName())) {
-                            Op = ArgMap[Op->getName()];
+                        if (VMap.count(Op->getName())) {
+                            Op = VMap[Op->getName()];
                         }
                     }
                 }
