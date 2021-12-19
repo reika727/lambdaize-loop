@@ -18,7 +18,6 @@ namespace {
             if (!Loop.getExitingBlock() || !Loop.getExitBlock()) {
                 return false;
             }
-            auto *Module = Loop.getHeader()->getParent()->getParent();
             auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
             auto *Exit = Loop.getExitBlock();
             // HACK: ArgsToLooper[0] should contain pointer to Extracted, so reserve place
@@ -27,14 +26,13 @@ namespace {
             Term->setSuccessor(0, Exit);
             llvm::IRBuilder Builder(Term);
             ArgsToLooper[0] = Extracted;
-            Builder.CreateCall(getLooperFC(*Module), llvm::ArrayRef(ArgsToLooper));
+            Builder.CreateCall(getLooperFC(*Loop.getHeader()->getModule()), llvm::ArrayRef(ArgsToLooper));
             return true;
         }
         template <class OutputIterator>
         llvm::Function *createExtracted(llvm::Loop &Loop, OutputIterator NeededArguments)
         {
-            auto *Module = Loop.getHeader()->getParent()->getParent();
-            auto &Context = Module->getContext();
+            auto &Context = Loop.getHeader()->getContext();
             std::vector<llvm::Value *> OutsideDefined;
             setOutsideDefinedVariables(Loop, std::back_inserter(OutsideDefined));
             std::copy(OutsideDefined.begin(), OutsideDefined.end(), NeededArguments);
@@ -45,7 +43,7 @@ namespace {
                     false),
                 llvm::GlobalValue::LinkageTypes::PrivateLinkage,
                 "extracted",
-                *Module);
+                *Loop.getHeader()->getModule());
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", Extracted));
             for (auto &&OD : OutsideDefined) {
                 Builder.CreateVAArg(Extracted->getArg(0), OD->getType(), OD->getName());
@@ -87,7 +85,7 @@ namespace {
         template <class OutputIterator>
         OutputIterator RemoveLoop(llvm::Loop &Loop, OutputIterator Dest)
         {
-            auto &Context = Loop.getHeader()->getParent()->getParent()->getContext();
+            auto &Context = Loop.getHeader()->getContext();
             auto *CondBr = llvm::dyn_cast<llvm::BranchInst>(Loop.getExitingBlock()->getTerminator());
             llvm::BasicBlock *EndBlock;
             if (auto *IfTrue = CondBr->getSuccessor(0), *IfFalse = CondBr->getSuccessor(1); Loop.contains(IfTrue)) {
@@ -131,11 +129,9 @@ namespace {
         }
         llvm::FunctionCallee getLooperFC(llvm::Module &Module)
         {
-            const std::string Name = "looper";
-            auto *Type = llvm::FunctionType::get(
-                llvm::Type::getVoidTy(Module.getContext()),
-                true);
-            return Module.getOrInsertFunction(Name, Type);
+            return Module.getOrInsertFunction(
+                "looper",
+                llvm::FunctionType::get(llvm::Type::getVoidTy(Module.getContext()), true));
         }
         llvm::StructType *getVaListType(llvm::LLVMContext &Context)
         {
