@@ -154,7 +154,7 @@ extern "C" LLVM_ATTRIBUTE_WEAK llvm::PassPluginLibraryInfo llvmGetPassPluginInfo
     return {
         LLVM_PLUGIN_API_VERSION,
         "Lambdaize loop (under development)",
-        LLVM_VERSION_STRING,
+        "0.0.0",
         [](llvm::PassBuilder &PB) {
             PB.registerPipelineParsingCallback(
                 [](llvm::StringRef Name, llvm::FunctionPassManager &FPM, llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
