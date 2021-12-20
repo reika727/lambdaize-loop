@@ -30,23 +30,24 @@ namespace {
         template <class OutputIterator>
         llvm::Function *createExtracted(llvm::Loop &Loop, OutputIterator NeededArguments)
         {
+            auto *Module = Loop.getHeader()->getModule();
             auto &Context = Loop.getHeader()->getContext();
+            std::vector<llvm::BasicBlock *> BlocksFromLoop;
+            if (!RemoveLoop(Loop, std::back_inserter(BlocksFromLoop))) {
+                return nullptr;
+            }
             std::vector<llvm::Value *> OutsideDefined;
-            setOutsideDefinedVariables(Loop, std::back_inserter(OutsideDefined));
+            setOutsideDefinedVariables(BlocksFromLoop, std::back_inserter(OutsideDefined));
             std::copy(OutsideDefined.begin(), OutsideDefined.end(), NeededArguments);
             auto *Extracted = llvm::Function::Create(
                 getExtractedFunctionType(Context),
                 llvm::GlobalValue::LinkageTypes::PrivateLinkage,
                 "extracted",
-                *Loop.getHeader()->getModule());
-            std::map<llvm::StringRef, llvm::Value *> ArgAddrMap;
+                *Module);
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", Extracted));
+            std::map<llvm::StringRef, llvm::Value *> ArgAddrMap;
             for (auto *OD : OutsideDefined) {
                 ArgAddrMap[OD->getName()] = Builder.CreateVAArg(Extracted->getArg(0), OD->getType());
-            }
-            std::vector<llvm::BasicBlock *> BlocksFromLoop;
-            if (!RemoveLoop(Loop, std::back_inserter(BlocksFromLoop))) {
-                return nullptr;
             }
             Builder.CreateBr(BlocksFromLoop.front());
             for (auto *Block : BlocksFromLoop) {
@@ -62,10 +63,10 @@ namespace {
             return Extracted;
         }
         template <class OutputIterator>
-        OutputIterator setOutsideDefinedVariables(llvm::Loop &Loop, OutputIterator result)
+        OutputIterator setOutsideDefinedVariables(std::vector<llvm::BasicBlock *> &Blocks, OutputIterator result)
         {
             std::set<llvm::Value *> Declared, Arguments;
-            for (auto *Block : Loop.blocks()) {
+            for (auto *Block : Blocks) {
                 for (auto &&Inst : *Block) {
                     if (!Inst.getName().empty()) {
                         Declared.insert(&Inst);
