@@ -109,9 +109,9 @@ namespace {
                         BrInst->setSuccessor(i, EndBlock);
                     }
                 }
-                *Dest = Block;
+                *Dest++ = Block;
             }
-            *Dest = EndBlock;
+            *Dest++ = EndBlock;
             return Dest;
         }
         llvm::FunctionCallee getLooperFC(llvm::Module &Module)
