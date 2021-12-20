@@ -35,10 +35,7 @@ namespace {
             setOutsideDefinedVariables(Loop, std::back_inserter(OutsideDefined));
             std::copy(OutsideDefined.begin(), OutsideDefined.end(), NeededArguments);
             auto *Extracted = llvm::Function::Create(
-                llvm::FunctionType::get(
-                    llvm::Type::getInt1Ty(Context),
-                    llvm::ArrayRef<llvm::Type *>{getVaListType(Context)->getPointerTo()},
-                    false),
+                getExtractedFunctionType(Context),
                 llvm::GlobalValue::LinkageTypes::PrivateLinkage,
                 "extracted",
                 *Loop.getHeader()->getModule());
@@ -123,9 +120,20 @@ namespace {
         }
         llvm::FunctionCallee getLooperFC(llvm::Module &Module)
         {
+            auto &Context = Module.getContext();
             return Module.getOrInsertFunction(
                 "looper",
-                llvm::FunctionType::get(llvm::Type::getVoidTy(Module.getContext()), true));
+                llvm::FunctionType::get(
+                    llvm::Type::getVoidTy(Context),
+                    llvm::ArrayRef<llvm::Type *>{getExtractedFunctionType(Context)->getPointerTo()},
+                    true));
+        }
+        llvm::FunctionType *getExtractedFunctionType(llvm::LLVMContext &Context)
+        {
+            return llvm::FunctionType::get(
+                llvm::Type::getInt1Ty(Context),
+                llvm::ArrayRef<llvm::Type *>{getVaListType(Context)->getPointerTo()},
+                false);
         }
         llvm::StructType *getVaListType(llvm::LLVMContext &Context)
         {
