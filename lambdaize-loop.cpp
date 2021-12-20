@@ -2,6 +2,7 @@ namespace {
     class LambdaizeLoop : public llvm::PassInfoMixin<LambdaizeLoop> {
     public:
         // NOTE: REQUIRES LOOPS SIMPLIFIED AND INSTRUCTIONS NAMED
+        // NOTE: only loops with exactly one exit block will be obfuscated
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
             return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
@@ -14,20 +15,18 @@ namespace {
             if (!Loop.isInnermost()) {
                 return false;
             }
-            // TODO: handle loop with multiple exit and exiting
-            if (!Loop.getExitingBlock() || !Loop.getExitBlock()) {
-                return false;
-            }
             auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
             auto *Exit = Loop.getExitBlock();
             // HACK: ArgsToLooper[0] should contain pointer to Extracted, so reserve place
             std::vector<llvm::Value *> ArgsToLooper(1);
-            auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper));
-            Term->setSuccessor(0, Exit);
-            llvm::IRBuilder Builder(Term);
-            ArgsToLooper[0] = Extracted;
-            Builder.CreateCall(getLooperFC(*Loop.getHeader()->getModule()), llvm::ArrayRef(ArgsToLooper));
-            return true;
+            if (auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper))) {
+                Term->setSuccessor(0, Exit);
+                llvm::IRBuilder Builder(Term);
+                ArgsToLooper[0] = Extracted;
+                Builder.CreateCall(getLooperFC(*Loop.getHeader()->getModule()), llvm::ArrayRef(ArgsToLooper));
+                return true;
+            }
+            return false;
         }
         template <class OutputIterator>
         llvm::Function *createExtracted(llvm::Loop &Loop, OutputIterator NeededArguments)
@@ -50,7 +49,9 @@ namespace {
                 ArgAddrMap[OD->getName()] = Builder.CreateVAArg(Extracted->getArg(0), OD->getType());
             }
             std::vector<llvm::BasicBlock *> BlocksFromLoop;
-            RemoveLoop(Loop, std::back_inserter(BlocksFromLoop));
+            if (!RemoveLoop(Loop, std::back_inserter(BlocksFromLoop))) {
+                return nullptr;
+            }
             Builder.CreateBr(BlocksFromLoop.front());
             for (auto *Block : BlocksFromLoop) {
                 for (auto &&Inst : *Block) {
@@ -86,33 +87,40 @@ namespace {
                 result);
         }
         template <class OutputIterator>
-        OutputIterator RemoveLoop(llvm::Loop &Loop, OutputIterator Dest)
+        bool RemoveLoop(llvm::Loop &Loop, OutputIterator Dest)
         {
-            auto &Context = Loop.getHeader()->getContext();
-            auto *CondBr = llvm::dyn_cast<llvm::BranchInst>(Loop.getExitingBlock()->getTerminator());
-            llvm::BasicBlock *EndBlock;
-            if (auto *IfTrue = CondBr->getSuccessor(0), *IfFalse = CondBr->getSuccessor(1); Loop.contains(IfTrue)) {
-                EndBlock = llvm::BasicBlock::Create(Context, IfFalse->getName());
-                auto *Cond = CondBr->getCondition();
-                EndBlock->getInstList().push_back(llvm::ReturnInst::Create(Context, Cond));
-            } else /* Loop.contains(IfFalse) */ {
-                EndBlock = llvm::BasicBlock::Create(Context, IfTrue->getName());
-                auto *Cond = llvm::BinaryOperator::CreateNot(CondBr->getCondition());
-                EndBlock->getInstList().push_back(llvm::ReturnInst::Create(Context, Cond));
+            if (!Loop.getExitBlock()) {
+                return false;
             }
+            llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator())
+                ->setSuccessor(0, Loop.getExitBlock());
+            llvm::IRBuilder Builder(llvm::BasicBlock::Create(Loop.getHeader()->getContext()));
+            auto *PHI = Builder.CreatePHI(Builder.getInt1Ty(), 0);
             for (auto *Block : Loop.getBlocks()) {
-                Block->removeFromParent();
                 auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block->getTerminator());
-                for (size_t i = 0; i < BrInst->getNumSuccessors(); ++i) {
-                    if (auto *Successor = BrInst->getSuccessor(i);
-                        Successor == Loop.getHeader() || Successor->getName() == EndBlock->getName()) {
-                        BrInst->setSuccessor(i, EndBlock);
+                if (Loop.isLoopExiting(Block)) {
+                    if (Loop.contains(BrInst->getSuccessor(0))) {
+                        BrInst->setSuccessor(1, Builder.GetInsertBlock());
+                        PHI->addIncoming(BrInst->getCondition(), Block);
+                    } else /* Loop.contains(Condbr->getSuccessor(1)) */ {
+                        BrInst->setSuccessor(0, Builder.GetInsertBlock());
+                        PHI->addIncoming(Builder.CreateNot(BrInst->getCondition()), Block);
                     }
                 }
+                if (Loop.isLoopLatch(Block)) {
+                    for (size_t i = 0; i < BrInst->getNumSuccessors(); ++i) {
+                        if (BrInst->getSuccessor(i) == Loop.getHeader()) {
+                            BrInst->setSuccessor(i, Builder.GetInsertBlock());
+                            PHI->addIncoming(Builder.getTrue(), Block);
+                        }
+                    }
+                }
+                Block->removeFromParent();
                 *Dest++ = Block;
             }
-            *Dest++ = EndBlock;
-            return Dest;
+            Builder.CreateRet(PHI);
+            *Dest++ = Builder.GetInsertBlock();
+            return true;
         }
         llvm::FunctionCallee getLooperFC(llvm::Module &Module)
         {
