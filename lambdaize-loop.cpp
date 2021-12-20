@@ -15,15 +15,14 @@ namespace {
             if (!Loop.isInnermost()) {
                 return false;
             }
-            auto *Term = llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator());
-            auto *Exit = Loop.getExitBlock();
+            llvm::IRBuilder Builder(Loop.getLoopPreheader()->getTerminator());
             // HACK: ArgsToLooper[0] should contain pointer to Extracted, so reserve place
             std::vector<llvm::Value *> ArgsToLooper(1);
             if (auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper))) {
-                Term->setSuccessor(0, Exit);
-                llvm::IRBuilder Builder(Term);
                 ArgsToLooper[0] = Extracted;
-                Builder.CreateCall(getLooperFC(*Loop.getHeader()->getModule()), llvm::ArrayRef(ArgsToLooper));
+                Builder.CreateCall(
+                    getLooperFC(*Builder.GetInsertBlock()->getModule()),
+                    llvm::ArrayRef(ArgsToLooper));
                 return true;
             }
             return false;
