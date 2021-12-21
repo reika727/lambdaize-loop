@@ -4,8 +4,7 @@ namespace {
         // NOTE: REQUIRES LOOPS SIMPLIFIED AND INSTRUCTIONS NAMED
         // NOTE: only loops satisfing following will be obfuscated
         //// having exactly one exit block
-        //// having no return instruction inside
-        //// every terminator is branch instruction
+        //// every terminator inside is branch or switch
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
             return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
@@ -87,50 +86,40 @@ namespace {
         template <class OutputIterator>
         bool removeLoop(llvm::Loop &Loop, OutputIterator Dest)
         {
-            if (!Loop.getExitBlock()) {
+            auto *OriginalHeader = Loop.getHeader(), *OriginalExit = Loop.getExitBlock();
+            if (!OriginalExit) {
                 return false;
             }
             for (auto *Block : Loop.blocks()) {
-                // TODO: handle loop with switch instruction
-                if (!llvm::BranchInst::classof(Block->getTerminator())) {
+                if (!llvm::BranchInst::classof(Block->getTerminator()) &&
+                    !llvm::SwitchInst::classof(Block->getTerminator())) {
                     return false;
                 }
             }
-            llvm::cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator())
-                ->setSuccessor(0, Loop.getExitBlock());
-            llvm::IRBuilder Builder(llvm::BasicBlock::Create(Loop.getHeader()->getContext()));
-            auto *PHI = Builder.CreatePHI(Builder.getInt1Ty(), 0);
+            auto &Context = Loop.getHeader()->getContext();
+            auto *LoopContinue = llvm::BasicBlock::Create(Context);
+            LoopContinue->getInstList().push_back(
+                llvm::ReturnInst::Create(Context, llvm::ConstantInt::getTrue(Context)));
+            auto *LoopBreak = llvm::BasicBlock::Create(Context);
+            LoopBreak->getInstList().push_back(
+                llvm::ReturnInst::Create(Context, llvm::ConstantInt::getFalse(Context)));
+            Loop.getLoopPreheader()->getTerminator()->setSuccessor(0, Loop.getExitBlock());
             std::vector<llvm::BasicBlock *> ToBeRemoved;
             for (auto *Block : Loop.blocks()) {
-                auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block->getTerminator());
-                if (Loop.isLoopExiting(Block)) {
-                    if (Loop.contains(BrInst->getSuccessor(0))) {
-                        BrInst->setSuccessor(1, Builder.GetInsertBlock());
-                        PHI->addIncoming(BrInst->getCondition(), Block);
-                    } else /* Loop.contains(Condbr->getSuccessor(1)) */ {
-                        BrInst->setSuccessor(0, Builder.GetInsertBlock());
-                        PHI->addIncoming(Builder.CreateNot(BrInst->getCondition()), Block);
-                    }
-                }
-                if (Loop.isLoopLatch(Block)) {
-                    for (size_t i = 0; i < BrInst->getNumSuccessors(); ++i) {
-                        if (BrInst->getSuccessor(i) == Loop.getHeader()) {
-                            BrInst->setSuccessor(i, Builder.GetInsertBlock());
-                            PHI->addIncoming(Builder.getTrue(), Block);
-                        }
-                    }
-                }
-                Block->removeFromParent();
+                auto *Term = Block->getTerminator();
+                Term->replaceSuccessorWith(OriginalHeader, LoopContinue);
+                Term->replaceSuccessorWith(OriginalExit, LoopBreak);
                 ToBeRemoved.push_back(Block);
-                *Dest++ = Block;
             }
             for (auto *Block : ToBeRemoved) {
+                Block->removeFromParent();
                 for (auto *LoopPtr = &Loop; LoopPtr; LoopPtr = LoopPtr->getParentLoop()) {
                     LoopPtr->removeBlockFromLoop(Block);
                 }
+                *Dest++ = Block;
             }
-            Builder.CreateRet(PHI);
-            *Dest++ = Builder.GetInsertBlock();
+            *Dest++ = LoopContinue;
+            *Dest++ = LoopBreak;
             return true;
         }
         llvm::FunctionCallee getLooperFC(llvm::Module &Module)
