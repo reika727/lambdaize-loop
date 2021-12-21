@@ -1,7 +1,7 @@
 namespace {
     class LambdaizeLoop : public llvm::PassInfoMixin<LambdaizeLoop> {
     public:
-        // NOTE: REQUIRES LOOPS SIMPLIFIED AND INSTRUCTIONS NAMED
+        // NOTE: REQUIRES LOOPS SIMPLIFIED
         // NOTE: only loops satisfing following will be obfuscated
         //// having exactly one exit block
         //// every terminator inside is branch or switch
@@ -43,16 +43,16 @@ namespace {
                 "extracted",
                 *Module);
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Context, "", Extracted));
-            std::map<llvm::StringRef, llvm::Value *> ArgAddrMap;
+            std::map<llvm::Value *, llvm::Value *> ArgAddrMap;
             for (auto *OD : OutsideDefined) {
-                ArgAddrMap[OD->getName()] = Builder.CreateVAArg(Extracted->getArg(0), OD->getType());
+                ArgAddrMap[OD] = Builder.CreateVAArg(Extracted->getArg(0), OD->getType());
             }
             Builder.CreateBr(BlocksFromLoop.front());
             for (auto *Block : BlocksFromLoop) {
                 for (auto &&Inst : *Block) {
                     for (auto &&Op : Inst.operands()) {
-                        if (ArgAddrMap.count(Op->getName())) {
-                            Op = ArgAddrMap[Op->getName()];
+                        if (ArgAddrMap.count(Op)) {
+                            Op = ArgAddrMap[Op];
                         }
                     }
                 }
@@ -66,14 +66,12 @@ namespace {
             std::set<llvm::Value *> Declared, Arguments;
             for (auto itr = first; itr != last; ++itr) {
                 for (auto &&Inst : **itr) {
-                    if (!Inst.getName().empty()) {
-                        Declared.insert(&Inst);
-                    }
+                    Declared.insert(&Inst);
                     for (auto *Op : Inst.operand_values()) {
-                        if (!Op->getType()->isLabelTy() && !Op->getName().empty()) {
-                            if (!llvm::isa<llvm::GlobalValue>(Op)) {
-                                Arguments.insert(Op);
-                            }
+                        if (!Op->getType()->isLabelTy() &&
+                            !llvm::isa<llvm::GlobalValue>(Op) &&
+                            !llvm::isa<llvm::Constant>(Op)) {
+                            Arguments.insert(Op);
                         }
                     }
                 }
@@ -163,7 +161,6 @@ extern "C" LLVM_ATTRIBUTE_WEAK llvm::PassPluginLibraryInfo llvmGetPassPluginInfo
                 [](llvm::StringRef Name, llvm::FunctionPassManager &FPM, llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
                     if (Name == "lambdaize-loop") {
                         FPM.addPass(llvm::LoopSimplifyPass());
-                        FPM.addPass(llvm::InstructionNamerPass());
                         FPM.addPass(llvm::createFunctionToLoopPassAdaptor(LambdaizeLoop()));
                         return true;
                     }
