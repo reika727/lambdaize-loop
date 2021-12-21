@@ -75,7 +75,9 @@ namespace {
                     }
                     for (auto *Op : Inst.operand_values()) {
                         if (!Op->getType()->isLabelTy() && !Op->getName().empty()) {
-                            Arguments.insert(Op);
+                            if (!llvm::isa<llvm::GlobalValue>(Op)) {
+                                Arguments.insert(Op);
+                            }
                         }
                     }
                 }
