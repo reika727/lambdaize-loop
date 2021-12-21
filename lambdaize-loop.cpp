@@ -13,10 +13,6 @@ namespace {
     private:
         bool extractLoopIntoFunction(llvm::Loop &Loop)
         {
-            // TODO: handle nested loop
-            if (!Loop.isInnermost()) {
-                return false;
-            }
             llvm::IRBuilder Builder(Loop.getLoopPreheader()->getTerminator());
             // HACK: ArgsToLooper[0] should contain pointer to Extracted, so reserve place
             std::vector<llvm::Value *> ArgsToLooper(1);
@@ -104,6 +100,7 @@ namespace {
                 ->setSuccessor(0, Loop.getExitBlock());
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Loop.getHeader()->getContext()));
             auto *PHI = Builder.CreatePHI(Builder.getInt1Ty(), 0);
+            std::vector<llvm::BasicBlock *> ToBeRemoved;
             for (auto *Block : Loop.getBlocks()) {
                 auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block->getTerminator());
                 if (Loop.isLoopExiting(Block)) {
@@ -124,7 +121,13 @@ namespace {
                     }
                 }
                 Block->removeFromParent();
+                ToBeRemoved.push_back(Block);
                 *Dest++ = Block;
+            }
+            for (auto *Block : ToBeRemoved) {
+                for (auto *LoopPtr = &Loop; LoopPtr; LoopPtr = LoopPtr->getParentLoop()) {
+                    LoopPtr->removeBlockFromLoop(Block);
+                }
             }
             Builder.CreateRet(PHI);
             *Dest++ = Builder.GetInsertBlock();
