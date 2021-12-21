@@ -35,7 +35,7 @@ namespace {
             auto *Module = Loop.getHeader()->getModule();
             auto &Context = Loop.getHeader()->getContext();
             std::vector<llvm::BasicBlock *> BlocksFromLoop;
-            if (!RemoveLoop(Loop, std::back_inserter(BlocksFromLoop))) {
+            if (!removeLoop(Loop, std::back_inserter(BlocksFromLoop))) {
                 return nullptr;
             }
             std::vector<llvm::Value *> OutsideDefined;
@@ -86,7 +86,7 @@ namespace {
                 result);
         }
         template <class OutputIterator>
-        bool RemoveLoop(llvm::Loop &Loop, OutputIterator Dest)
+        bool removeLoop(llvm::Loop &Loop, OutputIterator Dest)
         {
             if (!Loop.getExitBlock()) {
                 return false;
