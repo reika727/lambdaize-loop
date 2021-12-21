@@ -5,6 +5,7 @@ namespace {
         // NOTE: only loops satisfing following will be obfuscated
         //// having exactly one exit block
         //// having no return instruction inside
+        //// every terminator is branch instruction
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
             return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
@@ -90,18 +91,17 @@ namespace {
                 return false;
             }
             for (auto *Block : Loop.blocks()) {
-                for (auto &&Inst : *Block) {
-                    if (llvm::ReturnInst::classof(&Inst)) {
-                        return false;
-                    }
+                // TODO: handle loop with switch instruction
+                if (!llvm::BranchInst::classof(Block->getTerminator())) {
+                    return false;
                 }
             }
-            llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator())
+            llvm::cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator())
                 ->setSuccessor(0, Loop.getExitBlock());
             llvm::IRBuilder Builder(llvm::BasicBlock::Create(Loop.getHeader()->getContext()));
             auto *PHI = Builder.CreatePHI(Builder.getInt1Ty(), 0);
             std::vector<llvm::BasicBlock *> ToBeRemoved;
-            for (auto *Block : Loop.getBlocks()) {
+            for (auto *Block : Loop.blocks()) {
                 auto *BrInst = llvm::dyn_cast<llvm::BranchInst>(Block->getTerminator());
                 if (Loop.isLoopExiting(Block)) {
                     if (Loop.contains(BrInst->getSuccessor(0))) {
