@@ -36,7 +36,7 @@ namespace {
                 return nullptr;
             }
             std::vector<llvm::Value *> OutsideDefined;
-            setOutsideDefinedVariables(BlocksFromLoop, std::back_inserter(OutsideDefined));
+            setOutsideDefinedVariables(BlocksFromLoop.begin(), BlocksFromLoop.end(), std::back_inserter(OutsideDefined));
             std::copy(OutsideDefined.begin(), OutsideDefined.end(), NeededArguments);
             auto *Extracted = llvm::Function::Create(
                 getExtractedFunctionType(Context),
@@ -61,12 +61,12 @@ namespace {
             }
             return Extracted;
         }
-        template <class OutputIterator>
-        OutputIterator setOutsideDefinedVariables(std::vector<llvm::BasicBlock *> &Blocks, OutputIterator result)
+        template <class InputIterator, class OutputIterator>
+        OutputIterator setOutsideDefinedVariables(InputIterator first, InputIterator last, OutputIterator result)
         {
             std::set<llvm::Value *> Declared, Arguments;
-            for (auto *Block : Blocks) {
-                for (auto &&Inst : *Block) {
+            for (auto itr = first; itr != last; ++itr) {
+                for (auto &&Inst : **itr) {
                     if (!Inst.getName().empty()) {
                         Declared.insert(&Inst);
                     }
