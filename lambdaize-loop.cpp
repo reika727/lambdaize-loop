@@ -2,7 +2,9 @@ namespace {
     class LambdaizeLoop : public llvm::PassInfoMixin<LambdaizeLoop> {
     public:
         // NOTE: REQUIRES LOOPS SIMPLIFIED AND INSTRUCTIONS NAMED
-        // NOTE: only loops with exactly one exit block will be obfuscated
+        // NOTE: only loops satisfing following will be obfuscated
+        //// having exactly one exit block
+        //// having no return instruction inside
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
             return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
@@ -88,6 +90,13 @@ namespace {
         {
             if (!Loop.getExitBlock()) {
                 return false;
+            }
+            for (auto *Block : Loop.blocks()) {
+                for (auto &&Inst : *Block) {
+                    if (llvm::ReturnInst::classof(&Inst)) {
+                        return false;
+                    }
+                }
             }
             llvm::dyn_cast<llvm::BranchInst>(Loop.getLoopPreheader()->getTerminator())
                 ->setSuccessor(0, Loop.getExitBlock());
