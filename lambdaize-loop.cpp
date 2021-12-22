@@ -17,14 +17,12 @@ namespace {
     private:
         bool extractLoopIntoFunction(llvm::Loop &Loop)
         {
-            llvm::IRBuilder Builder(Loop.getLoopPreheader()->getTerminator());
+            auto *Preheader = Loop.getLoopPreheader();
+            llvm::IRBuilder Builder(Preheader->getTerminator());
             // HACK: ArgsToLooper[0] should contain pointer to Extracted, so reserve place
             std::vector<llvm::Value *> ArgsToLooper(1);
-            if (auto *Extracted = createExtracted(Loop, std::back_inserter(ArgsToLooper))) {
-                ArgsToLooper[0] = Extracted;
-                Builder.CreateCall(
-                    getLooperFC(*Builder.GetInsertBlock()->getModule()),
-                    llvm::ArrayRef(ArgsToLooper));
+            if ((ArgsToLooper[0] = createExtracted(Loop, std::back_inserter(ArgsToLooper)))) {
+                Builder.CreateCall(getLooperFC(*Preheader->getModule()), llvm::ArrayRef(ArgsToLooper));
                 return true;
             }
             return false;
