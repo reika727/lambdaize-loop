@@ -7,6 +7,10 @@ namespace {
         //// every terminator inside is branch or switch
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
+            if (!Loop.isLoopSimplifyForm()) {
+                llvm::errs() << "Loop is not simplified.\n";
+                return llvm::PreservedAnalyses::none();
+            }
             return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
         }
 
