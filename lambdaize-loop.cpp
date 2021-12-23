@@ -62,27 +62,6 @@ namespace {
             }
             return Extracted;
         }
-        template <class InputIterator, class OutputIterator>
-        OutputIterator setOutsideDefinedVariables(InputIterator first, InputIterator last, OutputIterator result)
-        {
-            std::set<llvm::Value *> Declared, Arguments;
-            for (auto itr = first; itr != last; ++itr) {
-                for (auto &&Inst : **itr) {
-                    Declared.insert(&Inst);
-                    for (auto *Op : Inst.operand_values()) {
-                        if (!Op->getType()->isLabelTy() &&
-                            !llvm::isa<llvm::GlobalValue>(Op) &&
-                            !llvm::isa<llvm::Constant>(Op)) {
-                            Arguments.insert(Op);
-                        }
-                    }
-                }
-            }
-            return std::set_difference(
-                Arguments.begin(), Arguments.end(),
-                Declared.begin(), Declared.end(),
-                result);
-        }
         template <class OutputIterator>
         bool removeLoop(llvm::Loop &Loop, OutputIterator Dest)
         {
@@ -121,6 +100,27 @@ namespace {
             *Dest++ = LoopContinue;
             *Dest++ = LoopBreak;
             return true;
+        }
+        template <class InputIterator, class OutputIterator>
+        OutputIterator setOutsideDefinedVariables(InputIterator first, InputIterator last, OutputIterator result)
+        {
+            std::set<llvm::Value *> Declared, Arguments;
+            for (auto itr = first; itr != last; ++itr) {
+                for (auto &&Inst : **itr) {
+                    Declared.insert(&Inst);
+                    for (auto *Op : Inst.operand_values()) {
+                        if (!Op->getType()->isLabelTy() &&
+                            !llvm::isa<llvm::GlobalValue>(Op) &&
+                            !llvm::isa<llvm::Constant>(Op)) {
+                            Arguments.insert(Op);
+                        }
+                    }
+                }
+            }
+            return std::set_difference(
+                Arguments.begin(), Arguments.end(),
+                Declared.begin(), Declared.end(),
+                result);
         }
         llvm::FunctionCallee getLooperFC(llvm::Module &Module)
         {
