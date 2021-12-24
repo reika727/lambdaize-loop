@@ -16,63 +16,31 @@ struct higher_order_function_t<T, U> {
 template<class... Types>
 using higher_order_function = typename higher_order_function_t<Types...>::type;
 
-class fixed_point_combinator_multiple_arguments {
-public:
-    fixed_point_combinator_multiple_arguments() = delete;
-    static inline const auto Y = [](auto f) {
-        return [=](auto &&...x) {
-            return f(f, std::forward<decltype(x)>(x)...);
-        };
-    };
-    static inline const auto Z = [](auto f) {
-        auto curry = [](auto f) {
-            return [=](auto &&...x) {
-                return [&](auto &&...y) {
-                    return f(std::forward<decltype(x)>(x)..., std::forward<decltype(y)>(y)...);
-                };
-            };
-        };
-        return curry(f)(f);
-    };
-};
-
+/* HACK: clang++ cannot compile these lambdas unless T is specified explicitly (although g++ can) */
+template <class T>
 class fixed_point_combinator_one_argument {
 public:
     fixed_point_combinator_one_argument() = delete;
-    static inline const auto Y = [](auto f) {
-        return [=](auto &&x) {
-            return f(f)(x);
-        };
-    };
     static inline const auto Z = [](auto f) {
-        auto curry = [](auto f) {
-            return [=](auto &&x) {
-                return [&](auto &&y) {
-                    return f(std::forward<decltype(x)>(x))(std::forward<decltype(y)>(y));
-                };
-            };
-        };
-        return curry(f)(f);
-    };
-};
-
-template <class T>
-class fixed_point_combinator_experimental {
-public:
-    fixed_point_combinator_experimental() = delete;
-    /* Y = (lf.(lx.f(xx))(lx.f(xx))) */
-    [[deprecated("Y combinator causes infinite recursion. Use Z combinator!")]]
-    static inline const auto Y = [](auto f) {
         auto foo = [f](auto x) -> T {
-            return f(x(x));
+            auto bar = [x](auto &&y) {
+                return x(x)(std::forward<decltype(y)>(y));
+            };
+            return f(bar);
         };
         return foo(foo);
     };
-    /* Z = (lf.(lx.f(ly.xxy))(lx.f(ly.xxy))) */
+};
+
+/* HACK: same as above */
+template <class T>
+class fixed_point_combinator_multiple_arguments {
+public:
+    fixed_point_combinator_multiple_arguments() = delete;
     static inline const auto Z = [](auto f) {
         auto foo = [f](auto x) -> T {
-            auto bar = [x](auto y) {
-                return x(x)(y);
+            auto bar = [x](auto &&...y) {
+                return x(x)(std::forward<decltype(y)>(y)...);
             };
             return f(bar);
         };

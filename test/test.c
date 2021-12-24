@@ -91,6 +91,6 @@ int main(void)
     printf("%d\n", switch_in_loop());
     puts("QQ table");
     double_nested_loop();
-    //printf("%d\n", octuple_nested_loop());
+    printf("%d\n", octuple_nested_loop());
     return 0;
 }
