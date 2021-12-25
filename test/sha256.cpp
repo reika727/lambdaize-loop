@@ -1,0 +1,153 @@
+#include <climits>
+#include <cstring>
+#include <iostream>
+#include <iomanip>
+#include <array>
+#include <vector>
+
+/* assure 1 byte consists of 8 bits */
+static_assert(CHAR_BIT == 8);
+
+using word = std::uint32_t;
+
+constexpr std::size_t word_bytes = 4;
+constexpr std::size_t word_bits = word_bytes * CHAR_BIT;
+constexpr std::size_t block_bytes = 64;
+constexpr std::size_t block_bits = block_bytes * CHAR_BIT;
+constexpr word H0[] = {
+    0x6a09e667,
+    0xbb67ae85,
+    0x3c6ef372,
+    0xa54ff53a,
+    0x510e527f,
+    0x9b05688c,
+    0x1f83d9ab,
+    0x5be0cd19
+};
+constexpr word K[] = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+};
+
+template<unsigned N>
+word SHR(const word x)
+{
+    static_assert(0 <= N && N < word_bits);
+    return x >> N;
+}
+template<unsigned N>
+word ROTR(const word x)
+{
+    static_assert(0 <= N && N < word_bits);
+    return (x >> N) | (x << (word_bits - N));
+}
+word Ch(const word x, const word y, const word z)
+{
+    return (x & y) ^ (~x & z);
+}
+word Maj(const word x, const word y, const word z)
+{
+    return (x & y) ^ (x & z) ^ (y & z);
+}
+word Sigma0(const word x)
+{
+    return ROTR<2>(x) ^ ROTR<13>(x) ^ ROTR<22>(x);
+}
+word Sigma1(const word x)
+{
+    return ROTR<6>(x) ^ ROTR<11>(x) ^ ROTR<25>(x);
+}
+word sigma0(const word x)
+{
+    return ROTR<7>(x) ^ ROTR<18>(x) ^ SHR<3>(x);
+}
+word sigma1(const word x)
+{
+    return ROTR<17>(x) ^ ROTR<19>(x) ^ SHR<10>(x);
+}
+
+class message : private std::vector<unsigned char>
+{
+    using std::vector<unsigned char>::begin;
+    using std::vector<unsigned char>::end;
+public:
+    template<class InputIterator>
+    message(InputIterator first, InputIterator last)
+        : std::vector<unsigned char>(first, last)
+    {
+        const auto mod_subtract = [mod = block_bits](const auto n, const auto m) {
+            return ((n + mod) - m % mod) % mod;
+        };
+        const std::uint64_t bytes = size();
+        const std::uint64_t l = bytes * CHAR_BIT;
+        const std::uint64_t k = mod_subtract(block_bits - 64, l + 1);
+        resize((l + 1 + k + 64) / CHAR_BIT);
+        data()[bytes] |= 0x80;
+        for (unsigned i = 0; i < 8; ++i) {
+            data()[size() - (8 - i)] |= (l >> ((7 - i) * CHAR_BIT)) & 0xff;
+        }
+    }
+    std::uint64_t N() const
+    {
+        return size() / block_bytes;
+    }
+    word get_word(const std::uint64_t block_index, const std::uint64_t word_index) const
+    {
+        const unsigned char*const word_ptr =
+            data() + block_index * block_bytes + word_index * word_bytes;
+        word ret = 0;
+        for (unsigned i = 0; i < word_bytes; ++i) {
+            ret |= (static_cast<word>(word_ptr[i]) << (word_bits - ((i + 1) * CHAR_BIT)));
+        }
+        return ret;
+    }
+};
+
+int main(int argc, char* argv[])
+{
+    const char *message_string = argc == 1 ? "" : argv[1];
+    const auto M = message(message_string, message_string + std::strlen(message_string));
+    std::array<word, std::size(H0)> H;
+    std::copy(std::begin(H0), std::end(H0), std::begin(H));
+    for (std::uint64_t i = 0; i < M.N(); ++i) {
+        word W[64];
+        for (unsigned t = 0; t < 16; ++t) {
+            W[t] = M.get_word(i, t);
+        }
+        for (unsigned t = 16; t < 64; ++t) {
+            W[t] = sigma1(W[t - 2]) + W[t - 7] + sigma0(W[t - 15]) + W[t - 16];
+        }
+        word a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+        for (unsigned t = 0; t < 64; ++t) {
+            const word T1 = h + Sigma1(e) + Ch(e, f, g) + K[t] + W[t];
+            const word T2 = Sigma0(a) + Maj(a, b, c);
+            h = g;
+            g = f;
+            f = e;
+            e = d + T1;
+            d = c;
+            c = b;
+            b = a;
+            a = T1 + T2;
+        }
+        H[0] += a;
+        H[1] += b;
+        H[2] += c;
+        H[3] += d;
+        H[4] += e;
+        H[5] += f;
+        H[6] += g;
+        H[7] += h;
+    }
+    for (word h : H) {
+        std::cout << std::hex << std::setfill('0') << std::setw(word_bytes * 2) << h;
+    }
+    std::cout << std::endl;
+    return 0;
+}
