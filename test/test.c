@@ -84,6 +84,16 @@ int octuple_nested_loop(void)
     return a;
 }
 
+int hundred_million_times_loop(void)
+{
+    long long a = 0;
+    int i;
+    for (i = 0; i < 100000000; ++i) {
+        ++a;
+    }
+    return a;
+}
+
 int main(void)
 {
     printf("%d\n", multiple_loops());
@@ -91,6 +101,7 @@ int main(void)
     printf("%d\n", switch_in_loop());
     puts("QQ table");
     double_nested_loop();
-    printf("%d\n", octuple_nested_loop());
+    //printf("%d\n", octuple_nested_loop());
+    printf("%d\n", hundred_million_times_loop());
     return 0;
 }
