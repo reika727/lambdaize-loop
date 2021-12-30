@@ -164,6 +164,7 @@ extern "C" LLVM_ATTRIBUTE_WEAK llvm::PassPluginLibraryInfo llvmGetPassPluginInfo
                     if (Name == "lambdaize-loop") {
                         FPM.addPass(llvm::LoopSimplifyPass());
                         FPM.addPass(llvm::createFunctionToLoopPassAdaptor(LambdaizeLoop()));
+                        FPM.addPass(llvm::SimplifyCFGPass());
                         return true;
                     }
                     return false;
