@@ -1,27 +1,27 @@
 CC         := clang
 CXX        := clang++
 CXXFLAGS   := -std=c++17
-CLANGFLAGS := -S -emit-llvm -Xclang -disable-O0-optnone
+CLANGFLAGS := -c -emit-llvm -Xclang -disable-O0-optnone
 
-.PRECIOUS: %.ll %.obfuscated.ll
+.PRECIOUS: %.bc %.obfuscated.bc
 
-%.ll: %.c
+%.bc: %.c
 	$(CC) $(CLANGFLAGS) -o $@ $^
 
-%.ll: %.cpp
+%.bc: %.cpp
 	$(CXX) $(CXXFLAGS) $(CLANGFLAGS) -o $@ $^
 
-%.obfuscated.ll: %.ll
+%.obfuscated.bc.unlinked: %.bc
 	$(MAKE) -C ..
-	opt -S -load-pass-plugin ../lambdaize-loop.so -passes=lambdaize-loop -o $@ $^
+	opt -load-pass-plugin ../lambdaize-loop.so -passes=lambdaize-loop -o $@ $^
 
-%.out: %.ll
+%.obfuscated.bc: %.obfuscated.bc.unlinked
+	$(MAKE) -C ../library looper.bc
+	llvm-link -o $@ $^ ../library/looper.bc
+
+%.out: %.bc
 	$(CXX) -o $@ $^
-
-%.obfuscated.out: %.obfuscated.ll
-	$(MAKE) -C ../library looper.o
-	$(CXX) -o $@ $^ ../library/looper.o
 
 .PHONY: clean
 clean:
-	$(RM) *.ll *.out
+	$(RM) *.bc *.out
