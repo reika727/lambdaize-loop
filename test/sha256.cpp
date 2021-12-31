@@ -1,5 +1,5 @@
 #include <climits>
-#include <cstring>
+#include <fstream>
 #include <iostream>
 #include <iomanip>
 #include <array>
@@ -116,8 +116,19 @@ public:
 
 int main(int argc, char* argv[])
 {
-    const char *message_string = argc == 1 ? "" : argv[1];
-    const auto M = message(message_string, message_string + std::strlen(message_string));
+    if (argc != 2) {
+        std::cerr << "usage: sha-256.out FILEPATH" << std::endl;
+        return EXIT_FAILURE;
+    }
+    std::ifstream ifs(argv[1], std::ios::binary);
+    if (!ifs) {
+        std::cerr << "COULD NOT OPEN FILE " << argv[1] << std::endl;
+        return EXIT_FAILURE;
+    }
+    const auto M = message(
+        std::istreambuf_iterator<char>(ifs),
+        std::istreambuf_iterator<char>()
+    );
     auto H = H0;
     for (dword i = 0; i < M.N(); ++i) {
         word W[64];
@@ -153,5 +164,5 @@ int main(int argc, char* argv[])
         std::cout << std::hex << std::setfill('0') << std::setw(word_bytes * 2) << h;
     }
     std::cout << std::endl;
-    return 0;
+    return EXIT_SUCCESS;
 }
