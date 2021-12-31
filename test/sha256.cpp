@@ -9,12 +9,13 @@
 static_assert(CHAR_BIT == 8);
 
 using word = std::uint32_t;
+using dword = std::uint64_t;
 
-constexpr std::size_t word_bytes = 4;
-constexpr std::size_t word_bits = word_bytes * CHAR_BIT;
-constexpr std::size_t block_bytes = 64;
-constexpr std::size_t block_bits = block_bytes * CHAR_BIT;
-constexpr word H0[] = {
+constexpr unsigned word_bytes = 4;
+constexpr unsigned word_bits = word_bytes * CHAR_BIT;
+constexpr unsigned block_bytes = 64;
+constexpr unsigned block_bits = block_bytes * CHAR_BIT;
+constexpr std::array<word, 8> H0 = {
     0x6a09e667,
     0xbb67ae85,
     0x3c6ef372,
@@ -24,7 +25,7 @@ constexpr word H0[] = {
     0x1f83d9ab,
     0x5be0cd19
 };
-constexpr word K[] = {
+constexpr std::array<word, 64> K = {
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
     0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
@@ -38,14 +39,18 @@ constexpr word K[] = {
 template<unsigned N>
 word SHR(const word x)
 {
-    static_assert(0 <= N && N < word_bits);
+    static_assert(N < word_bits);
     return x >> N;
 }
 template<unsigned N>
 word ROTR(const word x)
 {
-    static_assert(0 <= N && N < word_bits);
-    return (x >> N) | (x << (word_bits - N));
+    static_assert(N < word_bits);
+    if constexpr (N == 0) {
+        return x;
+    } else {
+        return (x >> N) | (x << (word_bits - N));
+    }
 }
 word Ch(const word x, const word y, const word z)
 {
@@ -84,20 +89,20 @@ public:
         const auto mod_subtract = [mod = block_bits](const auto n, const auto m) {
             return ((n + mod) - m % mod) % mod;
         };
-        const std::uint64_t bytes = size();
-        const std::uint64_t l = bytes * CHAR_BIT;
-        const std::uint64_t k = mod_subtract(block_bits - 64, l + 1);
+        const dword bytes = size();
+        const dword l = bytes * CHAR_BIT;
+        const dword k = mod_subtract(block_bits - 64, l + 1);
         resize((l + 1 + k + 64) / CHAR_BIT);
         data()[bytes] |= 0x80;
         for (unsigned i = 0; i < 8; ++i) {
             data()[size() - (8 - i)] |= (l >> ((7 - i) * CHAR_BIT)) & 0xff;
         }
     }
-    std::uint64_t N() const
+    dword N() const
     {
         return size() / block_bytes;
     }
-    word get_word(const std::uint64_t block_index, const std::uint64_t word_index) const
+    word get_word(const dword block_index, const unsigned word_index) const
     {
         const unsigned char*const word_ptr =
             data() + block_index * block_bytes + word_index * word_bytes;
@@ -113,9 +118,8 @@ int main(int argc, char* argv[])
 {
     const char *message_string = argc == 1 ? "" : argv[1];
     const auto M = message(message_string, message_string + std::strlen(message_string));
-    std::array<word, std::size(H0)> H;
-    std::copy(std::begin(H0), std::end(H0), std::begin(H));
-    for (std::uint64_t i = 0; i < M.N(); ++i) {
+    auto H = H0;
+    for (dword i = 0; i < M.N(); ++i) {
         word W[64];
         for (unsigned t = 0; t < 16; ++t) {
             W[t] = M.get_word(i, t);
