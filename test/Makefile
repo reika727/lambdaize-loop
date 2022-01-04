@@ -1,15 +1,15 @@
 CC         := clang
 CXX        := clang++
 CXXFLAGS   := -std=c++17
-CLANGFLAGS := -c -emit-llvm -Xclang -disable-O0-optnone
+CLANGFLAGS := -emit-llvm -Xclang -disable-O0-optnone
 
 .PRECIOUS: %.bc %.optimized.bc
 
 %.bc: %.c
-	$(CC) $(CLANGFLAGS) -o $@ $^
+	$(CC) -c $(CLANGFLAGS) -o $@ $^
 
 %.bc: %.cpp
-	$(CXX) $(CXXFLAGS) $(CLANGFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) -c $(CLANGFLAGS) -o $@ $^
 
 %.obfuscated.unlinked.bc: %.bc
 	$(MAKE) -C ..
