@@ -3,7 +3,7 @@ CXX        := clang++
 CXXFLAGS   := -std=c++17
 CLANGFLAGS := -emit-llvm -Xclang -disable-O0-optnone
 
-.PRECIOUS: %.bc %.optimized.bc
+.PRECIOUS: %.bc %.obfuscated.bc
 
 %.bc: %.c
 	$(CC) -c $(CLANGFLAGS) -o $@ $^
@@ -19,10 +19,7 @@ CLANGFLAGS := -emit-llvm -Xclang -disable-O0-optnone
 	$(MAKE) -C ../library looper.bc
 	llvm-link -o $@ $^ ../library/looper.bc
 
-%.optimized.bc: %.bc
-	opt -O3 -o $@ $^
-
-%.out: %.optimized.bc
+%.out: %.bc
 	$(CXX) -o $@ $^
 
 .PHONY: clean
