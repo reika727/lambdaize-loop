@@ -19,4 +19,3 @@ format:
 clean:
 	$(RM) *.pch *.so
 	$(MAKE) -C looper $@
-	$(MAKE) -C test $@
