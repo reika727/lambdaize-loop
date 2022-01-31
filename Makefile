@@ -18,5 +18,5 @@ format:
 .PHONY: clean
 clean:
 	$(RM) *.pch *.so
-	$(MAKE) -C library $@
+	$(MAKE) -C looper $@
 	$(MAKE) -C test $@

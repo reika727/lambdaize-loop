@@ -16,8 +16,8 @@ CLANGFLAGS := -emit-llvm -Xclang -disable-O0-optnone
 	opt -load-pass-plugin ../lambdaize-loop.so -passes=lambdaize-loop -o $@ $^
 
 %.obfuscated.bc: %.obfuscated.unlinked.bc
-	$(MAKE) -C ../library looper.bc
-	llvm-link -o $@ $^ ../library/looper.bc
+	$(MAKE) -C ../looper looper.bc
+	llvm-link -o $@ $^ ../looper/looper.bc
 
 %.out: %.bc
 	$(CXX) -o $@ $^
