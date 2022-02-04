@@ -1,5 +1,5 @@
 CXX                 := clang++
-MAX_RECURSION_COUNT ?= 512
+MAX_RECURSION_COUNT ?= 8192
 CPPFLAGS            := -DMAX_RECURSION_COUNT=$(MAX_RECURSION_COUNT)
 CXXFLAGS            := -std=c++17
 SRC                 := looper.cpp

@@ -2,7 +2,7 @@
 #include <cstdarg>
 
 #ifndef MAX_RECURSION_COUNT
-#define MAX_RECURSION_COUNT 512
+#define MAX_RECURSION_COUNT 8192
 #endif
 
 namespace {
