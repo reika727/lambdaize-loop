@@ -59,4 +59,4 @@ END {
 set style data histogram;
 set ylabel 'percentage';
 set xtic rotate by 292;
-plot '-' using 1:xtic(2) w lp pt 2 ps 2 title \"$1\" noenhanced, '' using 1:xtic(2) w lp pt 2 ps 2 title \"$2\" noenhanced"
+plot '-' using 1:xtic(2) w lp ps 2 title \"$1\" noenhanced, '' using 1:xtic(2) w lp ps 2 title \"$2\" noenhanced"
