@@ -77,11 +77,9 @@ namespace {
             }
             auto &Context = Loop.getHeader()->getContext();
             auto *LoopContinue = llvm::BasicBlock::Create(Context);
-            LoopContinue->getInstList().push_back(
-                llvm::ReturnInst::Create(Context, llvm::ConstantInt::getTrue(Context)));
+            llvm::IRBuilder(LoopContinue).CreateRet(llvm::ConstantInt::getTrue(Context));
             auto *LoopBreak = llvm::BasicBlock::Create(Context);
-            LoopBreak->getInstList().push_back(
-                llvm::ReturnInst::Create(Context, llvm::ConstantInt::getFalse(Context)));
+            llvm::IRBuilder(LoopBreak).CreateRet(llvm::ConstantInt::getFalse(Context));
             Loop.getLoopPreheader()->getTerminator()->setSuccessor(0, Loop.getExitBlock());
             std::vector<llvm::BasicBlock *> ToBeRemoved;
             for (auto *Block : Loop.blocks()) {
