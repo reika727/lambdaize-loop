@@ -10,11 +10,27 @@ namespace {
             if (!Loop.isLoopSimplifyForm()) {
                 llvm::errs() << "Loop is not simplified.\n";
                 return llvm::PreservedAnalyses::all();
+            } else if (LoopContainsMetadata(Loop, "lambdaizeloop")) {
+                return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
+            } else {
+                return llvm::PreservedAnalyses::all();
             }
-            return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
         }
 
     private:
+        bool LoopContainsMetadata(const llvm::Loop &Loop, const llvm::StringRef Str)
+        {
+            // "For legacy reasons, the first item of a loop metadata node must be a reference to itself."
+            // see https://llvm.org/docs/LangRef.html#llvm-loop
+            auto loopMetadata = Loop.getLoopID()->operands().drop_front();
+            return std::any_of(
+                loopMetadata.begin(), loopMetadata.end(),
+                [Str](const auto &MDOperand) {
+                    const auto Metadata = llvm::cast<llvm::MDNode>(MDOperand.get());
+                    return Metadata->getOperand(0).equalsStr(Str);
+                }
+            );
+        }
         bool extractLoopIntoFunction(llvm::Loop &Loop)
         {
             auto *Preheader = Loop.getLoopPreheader();
