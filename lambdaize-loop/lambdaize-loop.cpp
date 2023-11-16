@@ -9,7 +9,7 @@ namespace {
         {
             if (!Loop.isLoopSimplifyForm()) {
                 llvm::errs() << "Loop is not simplified.\n";
-                return llvm::PreservedAnalyses::none();
+                return llvm::PreservedAnalyses::all();
             }
             return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
         }
