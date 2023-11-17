@@ -1,3 +1,8 @@
+/**
+ * @file looper.cpp
+ * @brief looper 関数の実装
+ */
+
 #include "combinator.hpp"
 #include <cstdarg>
 
@@ -6,6 +11,11 @@
 #endif
 
 namespace {
+    /**
+     * @brief 再帰せずに繰り返し処理を行う
+     * @param loopee 繰り返し対象の関数へのポインタ
+     * @param vl loopee への引数
+     */
     void simple_while(bool (*loopee)(va_list), va_list vl)
     {
         while (true) {
@@ -16,6 +26,13 @@ namespace {
             if (!result) break;
         }
     }
+
+    /**
+     * @brief 全ての変数を個別に扱う Z コンビネータで再帰を行う
+     * @param loopee 繰り返し対象の関数へのポインタ
+     * @param vl loopee への引数
+     * @note 再帰回数が MAX_RECURSION_COUNT に達した場合は simple_while に移行する
+     */
     void z_combinator_one_argument(bool (*loopee)(va_list), va_list vl)
     {
         using F = higher_order_function<void, unsigned, decltype(vl), decltype(loopee)>;
@@ -39,6 +56,13 @@ namespace {
         };
         fixed_point_combinator_one_argument<F>::Z(internal)(loopee)(vl)(0);
     }
+
+    /**
+     * @brief 全ての変数をひとまとまりで扱う Z コンビネータで再帰を行う
+     * @param loopee 繰り返し対象の関数へのポインタ
+     * @param vl loopee への引数
+     * @note 再帰回数が MAX_RECURSION_COUNT に達した場合は simple_while に移行する
+     */
     void z_combinator_multiple_arguments(bool (*loopee)(va_list), va_list vl)
     {
         using F = std::function<void(decltype(loopee), decltype(vl), unsigned)>;
@@ -60,6 +84,11 @@ namespace {
     }
 }
 
+/**
+ * @brief looper 関数
+ * @param loopee 繰り返し対象の関数へのポインタ
+ * @param ... loopee への引数
+ */
 extern "C" void looper(bool (*loopee)(va_list), ...)
 {
     va_list vl;

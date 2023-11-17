@@ -1,10 +1,23 @@
+/**
+ * @files count-cyclomatic-complexity.cpp
+ * @brief プログラムの循環的複雑度を求めるパス
+ */
+
 #include <llvm/IR/PassManager.h>
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/PassPlugin.h>
 
 namespace {
+    /**
+     * @brief モジュールの循環的複雑度を求める
+     * @details モジュール内の辺数を E, 基本ブロック数を V, 関数数を C として、
+     * @details 循環的複雑度は E - V + 2C と定められる
+     */
     class CountCyclomaticComplexity : public llvm::PassInfoMixin<CountCyclomaticComplexity> {
     public:
+        /**
+         * @brief 関数数、辺数、基本ブロック数、循環的複雑度を表示する
+         */
         llvm::PreservedAnalyses run(llvm::Module &Module, llvm::ModuleAnalysisManager &)
         {
             int ComponentsCount = 0;
