@@ -44,13 +44,17 @@ namespace {
         {
             // "For legacy reasons, the first item of a loop metadata node must be a reference to itself."
             // see https://llvm.org/docs/LangRef.html#llvm-loop
-            auto loopMetadata = Loop.getLoopID()->operands().drop_front();
-            return std::any_of(
-                loopMetadata.begin(), loopMetadata.end(),
-                [Str](const auto &MDOperand) {
-                    const auto Metadata = llvm::cast<llvm::MDNode>(MDOperand.get());
-                    return Metadata->getOperand(0).equalsStr(Str);
-                });
+
+            if (auto *LoopID = Loop.getLoopID()) {
+                auto loopMetadata = LoopID->operands().drop_front();
+                return std::any_of(
+                    loopMetadata.begin(), loopMetadata.end(),
+                    [Str](const auto &MDOperand) {
+                        const auto Metadata = llvm::cast<llvm::MDNode>(MDOperand.get());
+                        return Metadata->getOperand(0).equalsStr(Str);
+                    });
+            }
+            return false;
         }
 
         /**
