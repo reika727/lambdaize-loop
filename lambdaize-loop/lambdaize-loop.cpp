@@ -13,22 +13,25 @@ namespace {
          * @brief パスの処理の実体
          * @note lambdaizeloop メタデータを持つループのみ処理を行う
          */
-        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &LAM, llvm::LoopStandardAnalysisResults &LSAR, llvm::LPMUpdater &LPMU)
+        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &LPMU)
         {
             if (!LoopContainsMetadata(Loop, "lambdaizeloop")) {
                 llvm::errs() << "\"lambdaizeloop\" metadata is not set.\n";
                 return llvm::PreservedAnalyses::all();
             }
+            llvm::FunctionAnalysisManager FAM;
+            llvm::PassBuilder().registerFunctionAnalyses(FAM);
+            auto *ParentFunction = Loop.getHeader()->getParent();
             std::unique_ptr<llvm::MemorySSAUpdater> MSSAU;
-            if (auto *MSSAAnalysis = LAM.getCachedResult<llvm::MemorySSAAnalysis>(Loop)) {
+            if (auto *MSSAAnalysis = FAM.getCachedResult<llvm::MemorySSAAnalysis>(*ParentFunction)) {
                 MSSAU = std::make_unique<llvm::MemorySSAUpdater>(&MSSAAnalysis->getMSSA());
             }
             auto HasPreheader = (Loop.getLoopPreheader() != nullptr);
             if (!HasPreheader) {
                 llvm::InsertPreheaderForLoop(
                     &Loop,
-                    &LAM.getResult<llvm::DominatorTreeAnalysis>(Loop, LSAR),
-                    &LAM.getResult<llvm::LoopAnalysis>(Loop, LSAR),
+                    &FAM.getResult<llvm::DominatorTreeAnalysis>(*ParentFunction),
+                    &FAM.getResult<llvm::LoopAnalysis>(*ParentFunction),
                     MSSAU.get(),
                     false /* LCSSA is NOT preserved */
                 );
