@@ -306,11 +306,9 @@ extern "C" LLVM_ATTRIBUTE_WEAK llvm::PassPluginLibraryInfo llvmGetPassPluginInfo
         "1.0.0",
         [](llvm::PassBuilder &PB) {
             PB.registerPipelineParsingCallback(
-                [](llvm::StringRef Name, llvm::FunctionPassManager &FPM, llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
+                [](llvm::StringRef Name, llvm::LoopPassManager &LPM, llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
                     if (Name == "lambdaize-loop") {
-                        FPM.addPass(llvm::LoopSimplifyPass());
-                        FPM.addPass(llvm::createFunctionToLoopPassAdaptor(LambdaizeLoop()));
-                        FPM.addPass(llvm::SimplifyCFGPass());
+                        LPM.addPass(LambdaizeLoop());
                         return true;
                     }
                     return false;
