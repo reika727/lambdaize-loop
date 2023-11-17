@@ -13,17 +13,24 @@ namespace {
          * @brief パスの処理の実体
          * @note lambdaizeloop メタデータを持つループのみ処理を行う
          */
-        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
+        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &LAM, llvm::LoopStandardAnalysisResults &LSAR, llvm::LPMUpdater &)
         {
-            // TODO: ここの条件は「preheader を持たない」で置き換えられないか？
-            if (!Loop.isLoopSimplifyForm()) {
-                llvm::errs() << "Loop is not simplified.\n";
-                return llvm::PreservedAnalyses::all();
-            } else if (LoopContainsMetadata(Loop, "lambdaizeloop")) {
-                return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
-            } else {
+            if (!LoopContainsMetadata(Loop, "lambdaizeloop")) {
+                llvm::errs() << "\"lambdaizeloop\" metadata is not set.\n";
                 return llvm::PreservedAnalyses::all();
             }
+            std::unique_ptr<llvm::MemorySSAUpdater> MSSAU;
+            if (auto *MSSAAnalysis = LAM.getCachedResult<llvm::MemorySSAAnalysis>(Loop)) {
+                MSSAU = std::make_unique<llvm::MemorySSAUpdater>(&MSSAAnalysis->getMSSA());
+            }
+            llvm::InsertPreheaderForLoop(
+                &Loop,
+                &LAM.getResult<llvm::DominatorTreeAnalysis>(Loop, LSAR),
+                &LAM.getResult<llvm::LoopAnalysis>(Loop, LSAR),
+                MSSAU.get(),
+                false /* LCSSA is NOT preserved */
+            );
+            return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
         }
 
     private:
@@ -43,8 +50,7 @@ namespace {
                 [Str](const auto &MDOperand) {
                     const auto Metadata = llvm::cast<llvm::MDNode>(MDOperand.get());
                     return Metadata->getOperand(0).equalsStr(Str);
-                }
-            );
+                });
         }
 
         /**
