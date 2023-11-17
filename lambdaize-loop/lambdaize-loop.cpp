@@ -23,14 +23,17 @@ namespace {
             if (auto *MSSAAnalysis = LAM.getCachedResult<llvm::MemorySSAAnalysis>(Loop)) {
                 MSSAU = std::make_unique<llvm::MemorySSAUpdater>(&MSSAAnalysis->getMSSA());
             }
-            llvm::InsertPreheaderForLoop(
-                &Loop,
-                &LAM.getResult<llvm::DominatorTreeAnalysis>(Loop, LSAR),
-                &LAM.getResult<llvm::LoopAnalysis>(Loop, LSAR),
-                MSSAU.get(),
-                false /* LCSSA is NOT preserved */
-            );
-            return extractLoopIntoFunction(Loop) ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
+            auto HasPreheader = (Loop.getLoopPreheader() != nullptr);
+            if (!HasPreheader) {
+                llvm::InsertPreheaderForLoop(
+                    &Loop,
+                    &LAM.getResult<llvm::DominatorTreeAnalysis>(Loop, LSAR),
+                    &LAM.getResult<llvm::LoopAnalysis>(Loop, LSAR),
+                    MSSAU.get(),
+                    false /* LCSSA is NOT preserved */
+                );
+            }
+            return extractLoopIntoFunction(Loop) || !HasPreheader ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
         }
 
     private:
