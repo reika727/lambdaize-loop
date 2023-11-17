@@ -33,7 +33,7 @@ namespace {
             llvm::errs() << "Edges Count: " << EdgesSum << '\n';
             llvm::errs() << "Nodes Count: " << NodesSum << '\n';
             llvm::errs() << "Cyclomatic Complexity: " << EdgesSum - NodesSum + 2 * ComponentsCount << '\n';
-            return llvm::PreservedAnalyses::none();
+            return llvm::PreservedAnalyses::all();
         }
     };
 }
