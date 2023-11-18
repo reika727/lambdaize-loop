@@ -298,7 +298,7 @@ namespace {
          */
         llvm::StructType *getVaListType(llvm::LLVMContext &Context)
         {
-            const std::string Name = "struct.va_list";
+            const llvm::StringRef Name = "struct.va_list";
             if (auto *Type = llvm::StructType::getTypeByName(Context, Name)) {
                 return Type;
             }
