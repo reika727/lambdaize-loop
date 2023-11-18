@@ -1,3 +1,5 @@
+#include <llvm/ADT/SetOperations.h>
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/MemorySSAUpdater.h>
 #include <llvm/IR/Dominators.h>

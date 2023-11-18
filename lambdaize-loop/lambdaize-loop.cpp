@@ -53,9 +53,9 @@ namespace {
             // see https://llvm.org/docs/LangRef.html#llvm-loop
 
             if (auto *LoopID = Loop.getLoopID()) {
-                auto loopMetadata = LoopID->operands().drop_front();
-                return std::any_of(
-                    loopMetadata.begin(), loopMetadata.end(),
+                // TODO: replace with std:: when C++20 is available.
+                return llvm::any_of(
+                    LoopID->operands().drop_front(),
                     [Str](const auto &MDOperand) {
                         const auto Metadata = llvm::cast<llvm::MDNode>(MDOperand.get());
                         return Metadata->getOperand(0).equalsStr(Str);
@@ -111,7 +111,7 @@ namespace {
             // ループ内で使用されている変数のうち、外部で宣言されている者の一覧を取得する
             std::vector<llvm::Value *> OutsideDefined;
             setOutsideDefinedVariables(BlocksFromLoop.begin(), BlocksFromLoop.end(), std::back_inserter(OutsideDefined));
-            std::copy(OutsideDefined.begin(), OutsideDefined.end(), NeededArguments);
+            llvm::copy(OutsideDefined, NeededArguments); // TODO: replace with std:: when C++20 is available.
 
             auto *Extracted = llvm::Function::Create(
                 getExtractedFunctionType(Context),
