@@ -1,16 +1,16 @@
 CC         := clang
 CXX        := clang++
 CXXFLAGS   := -std=c++17
-CLANGFLAGS := -emit-llvm -Xclang -disable-O0-optnone
+CLANGFLAGS := -c -emit-llvm -Xclang -disable-O0-optnone
 PASSDIR    := ../lambdaize-loop
 
 .PRECIOUS: %.bc %.obfuscated.bc
 
 %.bc: %.c
-	$(CC) -c $(CLANGFLAGS) -o $@ $^
+	$(CC) $(CLANGFLAGS) -o $@ $^
 
 %.bc: %.cpp
-	$(CXX) $(CXXFLAGS) -c $(CLANGFLAGS) -o $@ $^
+	$(CXX) $(CXXFLAGS) $(CLANGFLAGS) -o $@ $^
 
 %.obfuscated.unlinked.bc: %.bc
 	$(MAKE) -C $(PASSDIR)
