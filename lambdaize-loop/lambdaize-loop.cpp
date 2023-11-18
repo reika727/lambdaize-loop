@@ -164,6 +164,7 @@ namespace {
 
             // exit block がちょうど一つでない場合は対象外
             if (!OriginalExit) {
+                llvm::errs() << "multiple exit blocks. skipped.\n";
                 return false;
             }
 
@@ -171,6 +172,7 @@ namespace {
             for (auto *Block : Loop.blocks()) {
                 if (!llvm::BranchInst::classof(Block->getTerminator()) &&
                     !llvm::SwitchInst::classof(Block->getTerminator())) {
+                    llvm::errs() << "terminator is neither branch or switch. skipped.\n";
                     return false;
                 }
             }
