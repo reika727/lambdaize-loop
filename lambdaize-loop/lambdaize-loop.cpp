@@ -28,6 +28,7 @@ namespace {
             }
             auto HasPreheader = (Loop.getLoopPreheader() != nullptr);
             if (!HasPreheader) {
+                llvm::errs() << "preheader inserted.\n";
                 llvm::InsertPreheaderForLoop(
                     &Loop,
                     &FAM.getResult<llvm::DominatorTreeAnalysis>(*ParentFunction),
