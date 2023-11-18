@@ -1,15 +1,15 @@
 CXX      := clang++
-CXXFLAGS := $(shell llvm-config --cxxflags) -Wall -Wextra
+CXXFLAGS := $(shell llvm-config --cxxflags)
 LDFLAGS  := $(shell llvm-config --ldflags)
 SRC      := lambdaize-loop.cpp
 TARGET   := lambdaize-loop.so
 PCH      := includes.pch
 
 $(TARGET): $(SRC) $(PCH)
-	$(CXX) $(CXXFLAGS) -include-pch $(PCH) -shared -fPIC $(LDFLAGS) -o $@ $<
+	$(CXX) $(CXXFLAGS) -Wall -Wextra -include-pch $(PCH) -shared -fPIC $(LDFLAGS) -o $@ $<
 
 %.pch: %.hpp
-	$(CXX) $(CXXFLAGS) -fPIC -o $@ $^
+	$(CXX) $(CXXFLAGS) -Wno-everything -fPIC -o $@ $^
 
 .PHONY: format
 format:
