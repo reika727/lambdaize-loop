@@ -1,5 +1,5 @@
 CXX      := clang++
-CXXFLAGS := $(shell llvm-config --cxxflags) -std=c++17 -Wall -Wextra
+CXXFLAGS := $(shell llvm-config --cxxflags) -Wall -Wextra
 LDFLAGS  := $(shell llvm-config --ldflags)
 SRC      := count-cyclomatic-complexity.cpp
 TARGET   := count-cyclomatic-complexity.so
