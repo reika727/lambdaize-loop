@@ -15,31 +15,31 @@ namespace {
          * @brief パスの処理の実体
          * @note lambdaizeloop メタデータを持つループのみ処理を行う
          */
-        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
+        llvm::PreservedAnalyses run(llvm::Function &Function, llvm::FunctionAnalysisManager &FAM)
         {
-            if (!LoopContainsMetadata(Loop, "lambdaizeloop")) {
-                LLVM_DEBUG(llvm::dbgs() << "\"lambdaizeloop\" metadata is not set.\n";);
-                return llvm::PreservedAnalyses::all();
+            auto &DominatorTree = FAM.getResult<llvm::DominatorTreeAnalysis>(Function);
+            auto &LoopInfo = FAM.getResult<llvm::LoopAnalysis>(Function);
+            auto *MSSAAnalysis = FAM.getCachedResult<llvm::MemorySSAAnalysis>(Function);
+            bool Changed = false;
+            for (auto *Loop : LoopInfo.getLoopsInPreorder()) {
+                if (!LoopContainsMetadata(*Loop, "lambdaizeloop")) {
+                    LLVM_DEBUG(llvm::dbgs() << "\"lambdaizeloop\" metadata is not set.\n";);
+                    continue;
+                }
+                if (!Loop->getLoopPreheader()) {
+                    std::unique_ptr<llvm::MemorySSAUpdater> MSSAU;
+                    if (MSSAAnalysis) {
+                        MSSAU = std::make_unique<llvm::MemorySSAUpdater>(&MSSAAnalysis->getMSSA());
+                    }
+                    LLVM_DEBUG(llvm::dbgs() << "preheader inserted.\n";);
+                    auto *Preheader = llvm::InsertPreheaderForLoop(
+                        Loop, &DominatorTree, &LoopInfo, MSSAU.get(),
+                        false /* LCSSA is NOT preserved */);
+                    Changed |= (Preheader != nullptr);
+                }
+                Changed |= extractLoopIntoFunction(*Loop);
             }
-            llvm::FunctionAnalysisManager FAM;
-            llvm::PassBuilder().registerFunctionAnalyses(FAM);
-            auto *ParentFunction = Loop.getHeader()->getParent();
-            std::unique_ptr<llvm::MemorySSAUpdater> MSSAU;
-            if (auto *MSSAAnalysis = FAM.getCachedResult<llvm::MemorySSAAnalysis>(*ParentFunction)) {
-                MSSAU = std::make_unique<llvm::MemorySSAUpdater>(&MSSAAnalysis->getMSSA());
-            }
-            auto HasPreheader = (Loop.getLoopPreheader() != nullptr);
-            if (!HasPreheader) {
-                LLVM_DEBUG(llvm::dbgs() << "preheader inserted.\n";);
-                llvm::InsertPreheaderForLoop(
-                    &Loop,
-                    &FAM.getResult<llvm::DominatorTreeAnalysis>(*ParentFunction),
-                    &FAM.getResult<llvm::LoopAnalysis>(*ParentFunction),
-                    MSSAU.get(),
-                    false /* LCSSA is NOT preserved */
-                );
-            }
-            return extractLoopIntoFunction(Loop) || !HasPreheader ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
+            return Changed ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
         }
 
     private:
@@ -314,9 +314,9 @@ extern "C" LLVM_ATTRIBUTE_WEAK llvm::PassPluginLibraryInfo llvmGetPassPluginInfo
         "1.0.0",
         [](llvm::PassBuilder &PB) {
             PB.registerPipelineParsingCallback(
-                [](llvm::StringRef Name, llvm::LoopPassManager &LPM, llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
+                [](llvm::StringRef Name, llvm::FunctionPassManager &FPM, llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
                     if (Name == "lambdaize-loop") {
-                        LPM.addPass(LambdaizeLoop());
+                        FPM.addPass(LambdaizeLoop());
                         return true;
                     }
                     return false;
