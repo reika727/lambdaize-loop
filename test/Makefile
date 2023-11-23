@@ -1,28 +1,28 @@
 CC         := clang
 CXX        := clang++
 CXXFLAGS   := -std=c++17
-CLANGFLAGS := -c -emit-llvm -Xclang -disable-O0-optnone
+CLANGFLAGS := -c -emit-llvm -S -Xclang -disable-O0-optnone
 PASSDIR    := ../lambdaize-loop
 
-.PRECIOUS: %.bc %.obfuscated.bc
+.PRECIOUS: %.ll %.obfuscated.ll
 
-%.bc: %.c
+%.ll: %.c
 	$(CC) $(CLANGFLAGS) -o $@ $^
 
-%.bc: %.cpp
+%.ll: %.cpp
 	$(CXX) $(CXXFLAGS) $(CLANGFLAGS) -o $@ $^
 
-%.obfuscated.unlinked.bc: %.bc
+%.obfuscated.unlinked.ll: %.ll
 	$(MAKE) -C $(PASSDIR)
-	opt -load-pass-plugin $(PASSDIR)/lambdaize-loop.so -passes=lambdaize-loop -o $@ $^
+	opt -S -load-pass-plugin $(PASSDIR)/lambdaize-loop.so -passes=lambdaize-loop -o $@ $^
 
-%.obfuscated.bc: %.obfuscated.unlinked.bc
+%.obfuscated.ll: %.obfuscated.unlinked.ll
 	$(MAKE) -C $(PASSDIR)/looper
-	llvm-link -o $@ $^ $(PASSDIR)/looper/looper.bc
+	llvm-link -S -o $@ $^ $(PASSDIR)/looper/looper.bc
 
-%.out: %.bc
+%.out: %.ll
 	$(CXX) -o $@ $^
 
 .PHONY: clean
 clean:
-	$(RM) *.bc *.out
+	$(RM) *.ll *.out
