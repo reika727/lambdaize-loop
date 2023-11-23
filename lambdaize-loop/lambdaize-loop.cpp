@@ -37,12 +37,185 @@ namespace {
                         false /* LCSSA is NOT preserved */);
                     Changed |= (Preheader != nullptr);
                 }
+                Changed |= unifyLoopExits(DominatorTree, LoopInfo, Loop);
                 Changed |= extractLoopIntoFunction(*Loop);
             }
             return Changed ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
         }
 
     private:
+        /**
+         * @brief ループの Exit ブロックを統合する
+         * @see llvm/lib/Transforms/Utils/UnifyLoopExits.cpp
+         */
+        bool unifyLoopExits(
+            llvm::DominatorTree &DominatorTree,
+            llvm::LoopInfo &LoopInfo,
+            llvm::Loop *Loop)
+        {
+            // To unify the loop exits, we need a list of the exiting blocks as
+            // well as exit blocks. The functions for locating these lists both
+            // traverse the entire loop body. It is more efficient to first
+            // locate the exiting blocks and then examine their successors to
+            // locate the exit blocks.
+            llvm::SetVector<llvm::BasicBlock *> ExitingBlocks;
+            llvm::SetVector<llvm::BasicBlock *> ExitBlocks;
+
+            // We need SetVectors, but the Loop API takes a vector, so we use a temporary.
+            llvm::SmallVector<llvm::BasicBlock *, 8> ExitingBlocksTemporary;
+            Loop->getExitingBlocks(ExitingBlocksTemporary);
+            for (auto *ExitingBlock : ExitingBlocksTemporary) {
+                ExitingBlocks.insert(ExitingBlock);
+                for (auto *Successor : llvm::successors(ExitingBlock)) {
+                    auto SuccessorLoop = LoopInfo.getLoopFor(Successor);
+
+                    // A successor is not an exit if it is directly or indirectly in the
+                    // current loop.
+                    if (SuccessorLoop == Loop || Loop->contains(SuccessorLoop)) {
+                        continue;
+                    }
+
+                    ExitBlocks.insert(Successor);
+                }
+            }
+
+            LLVM_DEBUG(
+                llvm::dbgs() << "Found exit blocks:";
+                for (auto ExitBlock : ExitBlocks) {
+                    llvm::dbgs() << " " << ExitBlock->getName();
+                }
+                llvm::dbgs() << "\n";
+
+                llvm::dbgs() << "Found exiting blocks:";
+                for (auto ExitingBlock : ExitingBlocks) {
+                    llvm::dbgs() << " " << ExitingBlock->getName();
+                }
+                llvm::dbgs() << "\n";
+            );
+
+            if (ExitBlocks.size() <= 1) {
+                LLVM_DEBUG(llvm::dbgs() << "loop does not have multiple exits; nothing to do\n");
+                return false;
+            }
+
+            llvm::SmallVector<llvm::BasicBlock *, 8> GuardBlocks;
+            llvm::DomTreeUpdater DTU(DominatorTree, llvm::DomTreeUpdater::UpdateStrategy::Eager);
+            auto UnifiedExitBlock = llvm::CreateControlFlowHub(
+                &DTU,
+                GuardBlocks,
+                ExitingBlocks,
+                ExitBlocks,
+                "loop.exit"
+            );
+
+            restoreSSA(DominatorTree, Loop, ExitingBlocks, UnifiedExitBlock);
+
+#if defined(EXPENSIVE_CHECKS)
+            assert(DominatorTree.verify(llvm::DominatorTree::VerificationLevel::Full));
+#else
+            assert(DominatorTree.verify(llvm::DominatorTree::VerificationLevel::Fast));
+#endif // EXPENSIVE_CHECKS
+
+            Loop->verifyLoop();
+
+            // The guard blocks were created outside the loop, so they need to become
+            // members of the parent loop.
+            if (auto ParentLoop = Loop->getParentLoop()) {
+                for (auto *GuardBlock : GuardBlocks) {
+                    ParentLoop->addBasicBlockToLoop(GuardBlock, LoopInfo);
+                }
+                ParentLoop->verifyLoop();
+            }
+
+#if defined(EXPENSIVE_CHECKS)
+            LoopInfo.verify(DominatorTree);
+#endif // EXPENSIVE_CHECKS
+
+            return true;
+        }
+
+        /**
+         * @brief SSA を復元する
+         * @see llvm/lib/Transforms/Utils/UnifyLoopExits.cpp
+         *
+         * The current transform introduces new control flow paths which may break the
+         * SSA requirement that every def must dominate all its uses. For example,
+         * consider a value D defined inside the loop that is used by some instruction
+         * U outside the loop. It follows that D dominates U, since the original
+         * program has valid SSA form. After merging the exits, all paths from D to U
+         * now flow through the unified exit block. In addition, there may be other
+         * paths that do not pass through D, but now reach the unified exit
+         * block. Thus, D no longer dominates U.
+         *
+         * Restore the dominance by creating a phi for each such D at the new unified
+         * loop exit. But when doing this, ignore any uses U that are in the new unified
+         * loop exit, since those were introduced specially when the block was created.
+         *
+         * The use of SSAUpdater seems like overkill for this operation. The location
+         * for creating the new PHI is well-known, and also the set of incoming blocks
+         * to the new PHI.
+         */
+        void restoreSSA(
+            const llvm::DominatorTree &DominatorTree,
+            const llvm::Loop *Loop,
+            const llvm::SetVector<llvm::BasicBlock *> &Incomings,
+            llvm::BasicBlock *LoopExitBlock
+        )
+        {
+            using InstructionVector = llvm::SmallVector<llvm::Instruction *, 8>;
+            using IIMap = llvm::MapVector<llvm::Instruction *, InstructionVector>;
+
+            IIMap ExternalUsers;
+            for (auto *LoopBlock : Loop->blocks()) {
+                for (auto &Instruction : *LoopBlock) {
+                    for (auto &Use : Instruction.uses()) {
+                        auto UsingInstruction = llvm::cast<llvm::Instruction>(Use.getUser());
+                        auto UsingBlock = UsingInstruction->getParent();
+                        if (UsingBlock == LoopExitBlock) {
+                            continue;
+                        }
+                        if (Loop->contains(UsingBlock)) {
+                            continue;
+                        }
+                        LLVM_DEBUG(llvm::dbgs() << "added ext use for " << Instruction.getName() << "("
+                                          << LoopBlock->getName() << ")"
+                                          << ": " << UsingInstruction->getName() << "("
+                                          << UsingBlock->getName() << ")"
+                                          << "\n");
+                        ExternalUsers[&Instruction].push_back(UsingInstruction);
+                    }
+                }
+            }
+
+            for (const auto &[Definition, Uses] : ExternalUsers) {
+                // For each Definition used outside the loop, create NewPhi in
+                // LoopExitBlock. NewPhi receives Definition only along exiting blocks that
+                // dominate it, while the remaining values are undefined since those paths
+                // didn't exist in the original CFG.
+                LLVM_DEBUG(llvm::dbgs() << "externally used: " << Definition->getName() << "\n");
+                auto NewPhi = llvm::PHINode::Create(
+                    Definition->getType(), Incomings.size(),
+                    Definition->getName() + ".moved", &LoopExitBlock->front());
+                for (auto *Incoming : Incomings) {
+                    LLVM_DEBUG(llvm::dbgs() << "predecessor " << Incoming->getName() << ": ");
+                    if (Definition->getParent() == Incoming || DominatorTree.dominates(Definition, Incoming)) {
+                        LLVM_DEBUG(llvm::dbgs() << "dominated\n");
+                        NewPhi->addIncoming(Definition, Incoming);
+                    } else {
+                        LLVM_DEBUG(llvm::dbgs() << "not dominated\n");
+                        NewPhi->addIncoming(llvm::PoisonValue::get(Definition->getType()), Incoming);
+                    }
+                }
+
+                LLVM_DEBUG(llvm::dbgs() << "external users:");
+                for (auto *Use : Uses) {
+                    LLVM_DEBUG(llvm::dbgs() << " " << Use->getName());
+                    Use->replaceUsesOfWith(Definition, NewPhi);
+                }
+                LLVM_DEBUG(llvm::dbgs() << "\n");
+            }
+        }
+
         /**
          * @brief 指定の文字列がループメタデータに含まれるか判定する
          * @param Loop 判定対象のループ

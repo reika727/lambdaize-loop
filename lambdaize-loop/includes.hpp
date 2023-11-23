@@ -1,5 +1,6 @@
 #include <llvm/ADT/SetOperations.h>
 #include <llvm/ADT/STLExtras.h>
+#include <llvm/Analysis/DomTreeUpdater.h>
 #include <llvm/Analysis/LoopInfo.h>
 #include <llvm/Analysis/MemorySSAUpdater.h>
 #include <llvm/IR/Dominators.h>
@@ -9,3 +10,4 @@
 #include <llvm/Passes/PassBuilder.h>
 #include <llvm/Passes/PassPlugin.h>
 #include <llvm/Support/Debug.h>
+#include <llvm/Transforms/Utils/BasicBlockUtils.h>
