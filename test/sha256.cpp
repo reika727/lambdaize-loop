@@ -77,7 +77,7 @@ word sigma1(const word x) noexcept
     return ROTR<17>(x) ^ ROTR<19>(x) ^ SHR<10>(x);
 }
 
-class message : private std::vector<unsigned char>
+class message final : private std::vector<unsigned char>
 {
     using std::vector<unsigned char>::begin;
     using std::vector<unsigned char>::end;
