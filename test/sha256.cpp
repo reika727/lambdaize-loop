@@ -37,13 +37,13 @@ constexpr std::array<word, 64> K = {
 };
 
 template<unsigned N>
-word SHR(const word x)
+word SHR(const word x) noexcept
 {
     static_assert(N < word_bits);
     return x >> N;
 }
 template<unsigned N>
-word ROTR(const word x)
+word ROTR(const word x) noexcept
 {
     static_assert(N < word_bits);
     if constexpr (N == 0) {
@@ -52,27 +52,27 @@ word ROTR(const word x)
         return (x >> N) | (x << (word_bits - N));
     }
 }
-word Ch(const word x, const word y, const word z)
+word Ch(const word x, const word y, const word z) noexcept
 {
     return (x & y) ^ (~x & z);
 }
-word Maj(const word x, const word y, const word z)
+word Maj(const word x, const word y, const word z) noexcept
 {
     return (x & y) ^ (x & z) ^ (y & z);
 }
-word Sigma0(const word x)
+word Sigma0(const word x) noexcept
 {
     return ROTR<2>(x) ^ ROTR<13>(x) ^ ROTR<22>(x);
 }
-word Sigma1(const word x)
+word Sigma1(const word x) noexcept
 {
     return ROTR<6>(x) ^ ROTR<11>(x) ^ ROTR<25>(x);
 }
-word sigma0(const word x)
+word sigma0(const word x) noexcept
 {
     return ROTR<7>(x) ^ ROTR<18>(x) ^ SHR<3>(x);
 }
-word sigma1(const word x)
+word sigma1(const word x) noexcept
 {
     return ROTR<17>(x) ^ ROTR<19>(x) ^ SHR<10>(x);
 }
@@ -83,7 +83,7 @@ class message : private std::vector<unsigned char>
     using std::vector<unsigned char>::end;
 public:
     template<class InputIterator>
-    message(InputIterator first, InputIterator last)
+    message(InputIterator first, InputIterator last) noexcept
         : std::vector<unsigned char>(first, last)
     {
         const auto mod_subtract = [mod = block_bits](const auto n, const auto m) {
@@ -98,11 +98,11 @@ public:
             data()[size() - (8 - i)] |= (l >> ((7 - i) * CHAR_BIT)) & 0xff;
         }
     }
-    dword N() const
+    dword N() const noexcept
     {
         return size() / block_bytes;
     }
-    word get_word(const dword block_index, const unsigned word_index) const
+    word get_word(const dword block_index, const unsigned word_index) const noexcept
     {
         const unsigned char*const word_ptr =
             data() + block_index * block_bytes + word_index * word_bytes;
@@ -130,6 +130,7 @@ int main(int argc, char* argv[])
         std::istreambuf_iterator<char>()
     );
     auto H = H0;
+    __attribute__((lambdaize_loop))
     for (dword i = 0; i < M.N(); ++i) {
         word W[64];
         for (unsigned t = 0; t < 16; ++t) {
