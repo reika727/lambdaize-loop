@@ -377,7 +377,9 @@ namespace {
             for (auto *Block : ToBeRemoved) {
                 Block->removeFromParent();
                 for (auto *LoopPtr = &Loop; LoopPtr; LoopPtr = LoopPtr->getParentLoop()) {
-                    LoopPtr->removeBlockFromLoop(Block);
+                    if (LoopPtr->contains(Block)) {
+                        LoopPtr->removeBlockFromLoop(Block);
+                    }
                 }
                 *Dest++ = Block;
             }
