@@ -3,6 +3,8 @@
  * @brief LambdaizeLoop パス
  */
 
+#define DEBUG_TYPE "lambdaize-loop"
+
 namespace {
     /**
      * @brief LambdaizeLoop パスの実装
@@ -16,7 +18,7 @@ namespace {
         llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
             if (!LoopContainsMetadata(Loop, "lambdaizeloop")) {
-                llvm::errs() << "\"lambdaizeloop\" metadata is not set.\n";
+                LLVM_DEBUG(llvm::dbgs() << "\"lambdaizeloop\" metadata is not set.\n";);
                 return llvm::PreservedAnalyses::all();
             }
             llvm::FunctionAnalysisManager FAM;
@@ -28,7 +30,7 @@ namespace {
             }
             auto HasPreheader = (Loop.getLoopPreheader() != nullptr);
             if (!HasPreheader) {
-                llvm::errs() << "preheader inserted.\n";
+                LLVM_DEBUG(llvm::dbgs() << "preheader inserted.\n";);
                 llvm::InsertPreheaderForLoop(
                     &Loop,
                     &FAM.getResult<llvm::DominatorTreeAnalysis>(*ParentFunction),
@@ -161,7 +163,7 @@ namespace {
 
             // exit block がちょうど一つでない場合は対象外
             if (!OriginalExit) {
-                llvm::errs() << "multiple exit blocks. skipped.\n";
+                LLVM_DEBUG(llvm::dbgs() << "multiple exit blocks. skipped.\n";);
                 return false;
             }
 
@@ -169,7 +171,7 @@ namespace {
             for (auto *Block : Loop.blocks()) {
                 if (!llvm::BranchInst::classof(Block->getTerminator()) &&
                     !llvm::SwitchInst::classof(Block->getTerminator())) {
-                    llvm::errs() << "terminator is neither branch or switch. skipped.\n";
+                    LLVM_DEBUG(llvm::dbgs() << "terminator is neither branch or switch. skipped.\n";);
                     return false;
                 }
             }
