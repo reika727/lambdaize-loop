@@ -13,7 +13,7 @@ namespace {
          * @brief パスの処理の実体
          * @note lambdaizeloop メタデータを持つループのみ処理を行う
          */
-        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &LPMU)
+        llvm::PreservedAnalyses run(llvm::Loop &Loop, llvm::LoopAnalysisManager &, llvm::LoopStandardAnalysisResults &, llvm::LPMUpdater &)
         {
             if (!LoopContainsMetadata(Loop, "lambdaizeloop")) {
                 llvm::errs() << "\"lambdaizeloop\" metadata is not set.\n";
@@ -37,7 +37,7 @@ namespace {
                     false /* LCSSA is NOT preserved */
                 );
             }
-            return extractLoopIntoFunction(Loop, LPMU) || !HasPreheader ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
+            return extractLoopIntoFunction(Loop) || !HasPreheader ? llvm::PreservedAnalyses::none() : llvm::PreservedAnalyses::all();
         }
 
     private:
@@ -67,17 +67,16 @@ namespace {
         /**
          * @brief ループを extracted 関数で置換する
          * @param Loop 置換対象のループ
-         * @param LPMU LPMUpdater
          * @return 置換が行われたか否か
          */
-        bool extractLoopIntoFunction(llvm::Loop &Loop, llvm::LPMUpdater &LPMU)
+        bool extractLoopIntoFunction(llvm::Loop &Loop)
         {
             auto *Preheader = Loop.getLoopPreheader();
             llvm::IRBuilder Builder(Preheader->getTerminator());
 
             // HACK: ArgsToLooper[0] should contain pointer to Extracted, so reserve place
             std::vector<llvm::Value *> ArgsToLooper(1);
-            if ((ArgsToLooper[0] = createExtracted(Loop, std::back_inserter(ArgsToLooper), LPMU))) {
+            if ((ArgsToLooper[0] = createExtracted(Loop, std::back_inserter(ArgsToLooper)))) {
                 // preheader の終端命令（この時点で exit ブロックへの branch に書き換えられている）の前に
                 // looper 関数の呼び出しを挿入する
                 Builder.CreateCall(getLooperFC(*Preheader->getModule()), llvm::ArrayRef(ArgsToLooper));
@@ -92,19 +91,18 @@ namespace {
          * @brief さらに作成された extracted 関数に渡される必要がある変数の一覧を取得する
          * @param Loop 変形対象のループ
          * @param[out] NeededArguments Value* への出力イテレータ
-         * @param LPMU LPMUpdater
          * @return extracted 関数が作成された場合はそのポインタ
          * @return 作成されなかった場合は nullptr
          */
         template <class OutputIterator>
-        llvm::Function *createExtracted(llvm::Loop &Loop, OutputIterator NeededArguments, llvm::LPMUpdater &LPMU)
+        llvm::Function *createExtracted(llvm::Loop &Loop, OutputIterator NeededArguments)
         {
             auto *Module = Loop.getHeader()->getModule();
             auto &Context = Loop.getHeader()->getContext();
 
             // ループを構成するブロック群を除外する
             std::vector<llvm::BasicBlock *> BlocksFromLoop;
-            if (!removeLoop(Loop, std::back_inserter(BlocksFromLoop), LPMU)) {
+            if (!removeLoop(Loop, std::back_inserter(BlocksFromLoop))) {
                 return nullptr;
             }
 
@@ -152,13 +150,12 @@ namespace {
          * @brief 変形条件を満たすループ（を構成する basic block 群）を除外したうえで出力する
          * @param[in] Loop 変形するループ
          * @param[out] Dest BasicBlock* への出力イテレータ
-         * @param LPMU LPMUpdater
          * @return 変形が行われたか否か
          * @note exit ブロックをちょうど一つ持ち、なおかつ内部の終端命令が全て
          * @note branch 命令か switch 命令である場合のみ変形を行う
          */
         template <class OutputIterator>
-        bool removeLoop(llvm::Loop &Loop, OutputIterator Dest, llvm::LPMUpdater &LPMU)
+        bool removeLoop(llvm::Loop &Loop, OutputIterator Dest)
         {
             auto *OriginalHeader = Loop.getHeader(), *OriginalExit = Loop.getExitBlock();
 
@@ -176,10 +173,6 @@ namespace {
                     return false;
                 }
             }
-
-            // ループの除外を通知
-            LPMU.markLoopAsDeleted(Loop, Loop.getName());
-            LPMU.markLoopNestChanged(true);
 
             auto &Context = Loop.getHeader()->getContext();
 
