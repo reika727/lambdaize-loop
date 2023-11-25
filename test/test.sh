@@ -8,4 +8,4 @@ make --directory="$SCRIPTDIR" "$ORIGINAL_EXE"
 make --directory="$SCRIPTDIR" "$OBFUSCATED_EXE"
 diff <("$SCRIPTDIR/$ORIGINAL_EXE" "${@:2}") <("$SCRIPTDIR/$OBFUSCATED_EXE" "${@:2}")
 { set +x; } 2>/dev/null
-echo -e "\e[32mTEST SUCCEEDED\e[m"
+echo -e '\e[32mTEST SUCCEEDED\e[m'
