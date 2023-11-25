@@ -1,6 +1,6 @@
 #!/bin/bash -e
 SCRIPTDIR=$(dirname $(realpath $0))
-BASENAME=$(basename -- $1)
+BASENAME=$(basename $1)
 ORIGINAL_EXE=${BASENAME%.*}.out
 OBFUSCATED_EXE=${BASENAME%.*}.obfuscated.out
 set -x
