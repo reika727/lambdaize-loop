@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPTDIR=$(dirname $(realpath $0))
+SCRIPTDIR=$(dirname "$(realpath $0)")
 
 function dump_instruction_counts() {
     objdump --disassemble --no-show-raw-insn "$1" |
