@@ -16,4 +16,4 @@ awk --assign filename1="$(basename $1)"   \
     --file "$SCRIPTDIR"/dump-instdist.awk \
     <(dump_instruction_counts "$1")       \
     <(dump_instruction_counts "$2")       |
-gnuplot -p -e "$(cat $SCRIPTDIR/plot.gpi | tr '\n' ';')"
+gnuplot --persist -e "$(cat $SCRIPTDIR/plot.gpi | tr '\n' ';')"
