@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPTDIR=$(dirname "$(realpath $0)")
+SCRIPTDIR=$(dirname "$(realpath "$0")")
 
 function dump_instruction_counts() {
     objdump --disassemble --no-show-raw-insn "$1" |
@@ -11,9 +11,9 @@ function dump_instruction_counts() {
     uniq --count
 }
 
-awk --assign filename1="$(basename $1)"   \
-    --assign filename2="$(basename $2)"   \
+awk --assign filename1="$(basename "$1")"   \
+    --assign filename2="$(basename "$2")"   \
     --file "$SCRIPTDIR"/dump-instdist.awk \
     <(dump_instruction_counts "$1")       \
     <(dump_instruction_counts "$2")       |
-gnuplot --persist -e "$(cat $SCRIPTDIR/plot.gpi | tr '\n' ';')"
+gnuplot --persist -e "$(tr '\n' ';' < "$SCRIPTDIR"/plot.gpi)"
