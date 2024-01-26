@@ -6,6 +6,21 @@
 #define DEBUG_TYPE "lambdaize-loop"
 
 namespace {
+    llvm::cl::opt<bool> all (
+        "all",
+        llvm::cl::desc("Obfuscate unannotated loops"),
+        llvm::cl::init(false)
+    );
+
+    llvm::cl::opt<double> probability (
+        "prob",
+        llvm::cl::desc("Obfuscation rate"),
+        llvm::cl::init(1.)
+    );
+
+    std::mt19937_64 engine(std::random_device{}());
+    std::uniform_real_distribution<> dist(0., 1.);
+
     /**
      * @brief LambdaizeLoop パスの実装
      */
@@ -22,8 +37,11 @@ namespace {
             auto *MSSAAnalysis = FAM.getCachedResult<llvm::MemorySSAAnalysis>(Function);
             bool Changed = false;
             for (auto *Loop : LoopInfo.getLoopsInPreorder()) {
-                if (!LoopContainsMetadata(*Loop, "lambdaizeloop")) {
+                if (!all && !LoopContainsMetadata(*Loop, "lambdaizeloop")) {
                     LLVM_DEBUG(llvm::dbgs() << "\"lambdaizeloop\" metadata is not set.\n";);
+                    continue;
+                }
+                if (dist(engine) >= probability) {
                     continue;
                 }
                 if (!Loop->getLoopPreheader()) {
