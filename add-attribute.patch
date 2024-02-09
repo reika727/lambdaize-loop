@@ -1,0 +1,128 @@
+diff --git a/clang/include/clang/Basic/Attr.td b/clang/include/clang/Basic/Attr.td
+index d5204b286..963fcb7be 100644
+--- a/clang/include/clang/Basic/Attr.td
++++ b/clang/include/clang/Basic/Attr.td
+@@ -4199,3 +4199,10 @@ def AvailableOnlyInDefaultEvalMethod : InheritableAttr {
+   let Documentation = [Undocumented];
+ }
+ 
++def LambdaizeLoop : StmtAttr {
++  let Spellings = [GNU<"lambdaize_loop">];
++  let Subjects = SubjectList<[ForStmt, CXXForRangeStmt, WhileStmt, DoStmt],
++                             ErrorDiag, "'for', 'while', and 'do' statements">;
++  let Documentation = [LambdaizeLoopDocs];
++}
++
+diff --git a/clang/include/clang/Basic/AttrDocs.td b/clang/include/clang/Basic/AttrDocs.td
+index 2c9502312..3885c9c12 100644
+--- a/clang/include/clang/Basic/AttrDocs.td
++++ b/clang/include/clang/Basic/AttrDocs.td
+@@ -7077,3 +7077,8 @@ the variables were declared in. It is not possible to check the return value
+ (if any) of these ``cleanup`` callback functions.
+ }];
+ }
++
++def LambdaizeLoopDocs : Documentation {
++  let Category = DocCatStmt;
++  let Content = [{}];
++}
+diff --git a/clang/lib/CodeGen/CGLoopInfo.cpp b/clang/lib/CodeGen/CGLoopInfo.cpp
+index e5d9db273..1d3bd9d14 100644
+--- a/clang/lib/CodeGen/CGLoopInfo.cpp
++++ b/clang/lib/CodeGen/CGLoopInfo.cpp
+@@ -433,6 +433,10 @@ MDNode *LoopInfo::createMetadata(
+     LoopProperties.push_back(
+         MDNode::get(Ctx, MDString::get(Ctx, "llvm.loop.mustprogress")));
+ 
++  if (Attrs.Lambdaize)
++    LoopProperties.push_back(
++        MDNode::get(Ctx, MDString::get(Ctx, "lambdaizeloop")));
++
+   assert(!!AccGroup == Attrs.IsParallel &&
+          "There must be an access group iff the loop is parallel");
+   if (Attrs.IsParallel) {
+@@ -453,7 +457,7 @@ LoopAttributes::LoopAttributes(bool IsParallel)
+       VectorizeScalable(LoopAttributes::Unspecified), InterleaveCount(0),
+       UnrollCount(0), UnrollAndJamCount(0),
+       DistributeEnable(LoopAttributes::Unspecified), PipelineDisabled(false),
+-      PipelineInitiationInterval(0), MustProgress(false) {}
++      PipelineInitiationInterval(0), MustProgress(false), Lambdaize(false) {}
+ 
+ void LoopAttributes::clear() {
+   IsParallel = false;
+@@ -470,6 +474,7 @@ void LoopAttributes::clear() {
+   PipelineDisabled = false;
+   PipelineInitiationInterval = 0;
+   MustProgress = false;
++  Lambdaize = false;
+ }
+ 
+ LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
+@@ -494,7 +499,7 @@ LoopInfo::LoopInfo(BasicBlock *Header, const LoopAttributes &Attrs,
+       Attrs.UnrollEnable == LoopAttributes::Unspecified &&
+       Attrs.UnrollAndJamEnable == LoopAttributes::Unspecified &&
+       Attrs.DistributeEnable == LoopAttributes::Unspecified && !StartLoc &&
+-      !EndLoc && !Attrs.MustProgress)
++      !EndLoc && !Attrs.MustProgress && !Attrs.Lambdaize)
+     return;
+ 
+   TempLoopID = MDNode::getTemporary(Header->getContext(), std::nullopt);
+@@ -600,6 +605,9 @@ void LoopInfoStack::push(BasicBlock *Header, clang::ASTContext &Ctx,
+                          const llvm::DebugLoc &EndLoc, bool MustProgress) {
+   // Identify loop hint attributes from Attrs.
+   for (const auto *Attr : Attrs) {
++    if (dyn_cast<LambdaizeLoopAttr>(Attr))
++      setLambdaize(true);
++
+     const LoopHintAttr *LH = dyn_cast<LoopHintAttr>(Attr);
+     const OpenCLUnrollHintAttr *OpenCLHint =
+         dyn_cast<OpenCLUnrollHintAttr>(Attr);
+diff --git a/clang/lib/CodeGen/CGLoopInfo.h b/clang/lib/CodeGen/CGLoopInfo.h
+index 856e892f7..8a09834d5 100644
+--- a/clang/lib/CodeGen/CGLoopInfo.h
++++ b/clang/lib/CodeGen/CGLoopInfo.h
+@@ -81,6 +81,9 @@ struct LoopAttributes {
+ 
+   /// Value for whether the loop is required to make progress.
+   bool MustProgress;
++
++  /// Value for whether the loop is required to be lambdaized.
++  bool Lambdaize;
+ };
+ 
+ /// Information used when generating a structured loop.
+@@ -285,6 +288,9 @@ public:
+   /// Set no progress for the next loop pushed.
+   void setMustProgress(bool P) { StagedAttrs.MustProgress = P; }
+ 
++  /// Set lambdaization for the next loop pushed.
++  void setLambdaize(bool L) { StagedAttrs.Lambdaize = L; }
++
+ private:
+   /// Returns true if there is LoopInfo on the stack.
+   bool hasInfo() const { return !Active.empty(); }
+diff --git a/clang/lib/Sema/SemaStmtAttr.cpp b/clang/lib/Sema/SemaStmtAttr.cpp
+index ad20bc887..44e4e3548 100644
+--- a/clang/lib/Sema/SemaStmtAttr.cpp
++++ b/clang/lib/Sema/SemaStmtAttr.cpp
+@@ -477,6 +477,11 @@ static Attr *handleOpenCLUnrollHint(Sema &S, Stmt *St, const ParsedAttr &A,
+   return ::new (S.Context) OpenCLUnrollHintAttr(S.Context, A, UnrollFactor);
+ }
+ 
++static Attr *handleLambdaizeLoop(Sema &S, Stmt *St, const ParsedAttr &A,
++                                 SourceRange Range) {
++  return ::new (S.Context) LambdaizeLoopAttr(S.Context, A);
++}
++
+ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
+                                   SourceRange Range) {
+   if (A.isInvalid() || A.getKind() == ParsedAttr::IgnoredAttribute)
+@@ -523,6 +528,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
+     return handleLikely(S, St, A, Range);
+   case ParsedAttr::AT_Unlikely:
+     return handleUnlikely(S, St, A, Range);
++  case ParsedAttr::AT_LambdaizeLoop:
++    return handleLambdaizeLoop(S, St, A, Range);
+   default:
+     // N.B., ClangAttrEmitter.cpp emits a diagnostic helper that ensures a
+     // declaration attribute is not written on a statement, but this code is
